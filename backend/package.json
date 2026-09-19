@@ -1,0 +1,30 @@
+{
+  "name": "upang-delivers-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Express + MongoDB Atlas API for Upang Delivers (campus micro-gigs).",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "seed": "node src/seed.js",
+    "db": "node src/cli.js",
+    "db:shell": "mongosh \"$MONGODB_URI\"",
+    "test:security": "node src/security.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.22.3",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.7.0",
+    "morgan": "^1.10.0",
+    "rate-limit-mongo": "^2.3.2",
+    "zod": "^3.23.8"
+  }
+}

@@ -1,0 +1,21 @@
+node_modules/
+dist/
+release/
+*.zip
+*.tar.gz
+
+# env
+.env
+.env.local
+.env.*.local
+
+# never commit Atlas credentials
+backend/.env
+
+# editor / os
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+backend/body.json
