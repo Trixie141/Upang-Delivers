@@ -13,14 +13,14 @@ const userSchema = new mongoose.Schema(
       minlength: [4, "Full name must be at least 4 characters."],
       maxlength: [60, "Full name must be 60 characters or fewer."],
       match: [
-        /^[A-Za-zÑñ.'-]+(?:\s+[A-Za-zÑñ.'-]+)+$/,
+        /^[\p{L}.'-]+(?:\s+[\p{L}.'-]+)+$/u,
         "Enter your first and last name (letters only).",
       ],
     },
     studentId: {
       type: String,
       default: null,
-      // sparse unique → many nulls allowed (employees/admins), but no duplicates
+      // sparse unique: many nulls allowed (admins), but no duplicates
       match: [/^\d{2}-\d{4}-\d{3,6}$/, "Use the campus format 03-2425-045935."],
     },
     email: {
@@ -40,12 +40,16 @@ const userSchema = new mongoose.Schema(
     role: {
       type: String,
       required: true,
-      enum: { values: ["student", "delivery", "employee", "admin"], message: "Unknown role." },
+      enum: { values: ["student", "delivery", "admin"], message: "Unknown role." },
       index: true,
     },
     status: { type: String, enum: ["active", "suspended"], default: "active" },
     failedLogins: { type: Number, default: 0 },
     lastLoginAt: { type: Date, default: null },
+
+    /** Editable profile fields (saved via PATCH /api/auth/me) */
+    phone: { type: String, trim: true, maxlength: 20, default: "" },
+    spot: { type: String, trim: true, maxlength: 80, default: "" },
   },
   {
     timestamps: true,
@@ -73,6 +77,7 @@ userSchema
     return undefined;
   });
 
+// Runs BEFORE validation, so `passwordHash: { required: true }` sees the hash.
 userSchema.pre("validate", async function hashBeforeValidate() {
   if (!this._plainPassword) return;
   this.passwordHash = await bcrypt.hash(this._plainPassword, ROUNDS);
@@ -80,6 +85,8 @@ userSchema.pre("validate", async function hashBeforeValidate() {
 });
 
 userSchema.methods.verifyPassword = function verifyPassword(plain) {
+  // passwordHash is select:false; if it was not loaded, fail closed instead of throwing.
+  if (!this.passwordHash) return Promise.resolve(false);
   return bcrypt.compare(plain, this.passwordHash);
 };
 
@@ -89,6 +96,8 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     name: this.fullName,
     studentId: this.studentId,
     email: this.email,
+    phone: this.phone ?? "",
+    spot: this.spot ?? "",
     role: this.role,
     status: this.status,
   };

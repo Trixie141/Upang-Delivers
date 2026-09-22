@@ -1,7 +1,6 @@
-import { Compass, ShoppingBag, ListPlus, CheckSquare, LogOut } from "lucide-react";
+import { Compass, ShoppingBag, ListPlus, CheckSquare, User, LogOut } from "lucide-react";
 
-export type ActiveTab = "browse" | "gigs" | "requests" | "create";
-
+export type ActiveTab = "browse" | "gigs" | "requests" | "create" | "profile";
 interface NavbarProps {
   activeTab: ActiveTab;
   setActiveTab: (tab: ActiveTab) => void;
@@ -32,6 +31,12 @@ export default function Navbar({ activeTab, setActiveTab, user, onLogout }: Navb
       id: "requests" as ActiveTab,
       label: "My Requests",
       icon: CheckSquare,
+      show: true,
+    },
+    {
+      id: "profile" as ActiveTab,
+      label: "Profile",
+      icon: User,
       show: true,
     },
   ];

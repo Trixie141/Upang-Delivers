@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Clock, MapPin, AlertCircle, RefreshCw, ChevronRight } from "lucide-react";
 import { api } from "../lib/api";
+import { formatDeadline } from "../lib/format";
 
 interface GigItem {
   _id: string;
@@ -12,8 +13,13 @@ interface GigItem {
   reward: number;
   deadline: string;
   status: "in_progress" | "picked_up" | "review" | "done" | "cancelled";
-  ownerId?: { _id: string; fullName: string };
-  runnerId?: string;
+  ownerId?: { _id: string; fullName: string } | string;
+  runnerId?: { _id: string; fullName: string } | string;
+}
+
+interface GigReview {
+  rating: number;
+  comment: string;
 }
 
 export default function MyGigs({ token, userId }: { token: string; userId: string }) {
@@ -21,6 +27,7 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [banner, setBanner] = useState("");
+  const [reviews, setReviews] = useState<Record<string, GigReview | null>>({});
 
   const fetchMyGigs = async () => {
     setLoading(true);
@@ -33,16 +40,30 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
       return;
     }
 
-    // Filter to show only gigs assigned to current runner that are not cancelled/done
-    const runnerGigs = (res.errands || []).filter(
-      (e: GigItem) => String(e.runnerId) === userId && e.status !== "cancelled",
-    );
+    // runnerId may come back populated as an object ({_id, fullName, role})
+    // rather than a plain string id, so unwrap it before comparing.
+    const runnerGigs = (res.errands || []).filter((e: GigItem) => {
+      const runnerId = typeof e.runnerId === "object" && e.runnerId ? e.runnerId._id : e.runnerId;
+      return String(runnerId) === userId && e.status !== "cancelled";
+    });
     setGigs(runnerGigs);
   };
 
   useEffect(() => {
     fetchMyGigs();
   }, [token, userId]);
+
+  // For every completed gig, check whether the requester has left a review yet.
+  useEffect(() => {
+    const apiClient = api as any;
+    const doneIds = gigs.filter((g) => g.status === "done" && !(g._id in reviews)).map((g) => g._id);
+
+    doneIds.forEach(async (id) => {
+      const res = await apiClient.getReview?.(token, id);
+      setReviews((prev) => ({ ...prev, [id]: res?.ok ? res.review : null }));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gigs, token]);
 
   const updateStatus = async (id: string, nextStatus: GigItem["status"]) => {
     setUpdatingId(id);
@@ -110,6 +131,8 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
         <div className="space-y-4">
           {gigs.map((gig) => {
             const badge = statusBadges[gig.status] || statusBadges.in_progress;
+            const requesterName =
+              typeof gig.ownerId === "object" && gig.ownerId ? gig.ownerId.fullName : "Student";
 
             return (
               <div key={gig._id} className="rounded-3xl bg-white p-6 shadow-sm sm:p-8">
@@ -138,14 +161,14 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
                   </div>
                   <div className="flex items-center gap-2 sm:col-span-2">
                     <Clock className="h-4 w-4 text-sky-500" />
-                    <span><strong>Deadline:</strong> {gig.deadline}</span>
+                    <span><strong>Deadline:</strong> {formatDeadline(gig.deadline)}</span>
                   </div>
                 </div>
 
                 {/* Status Action Controls */}
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 pt-6">
                   <span className="text-xs font-semibold text-slate-400">
-                    Requester: {gig.ownerId?.fullName || "Student"}
+                    Requester: {requesterName}
                   </span>
 
                   <div className="flex gap-3">
@@ -176,6 +199,29 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
                     )}
                   </div>
                 </div>
+
+                {gig.status === "done" && (
+                  <div className="mt-4 border-t border-slate-100 pt-4 text-sm">
+                    {reviews[gig._id] === undefined ? (
+                      <p className="text-slate-400">Checking for a review...</p>
+                    ) : reviews[gig._id] ? (
+                      <p className="text-slate-600">
+                        <span className="font-bold text-amber-500">
+                          {"★".repeat(reviews[gig._id]!.rating)}
+                          {"☆".repeat(5 - reviews[gig._id]!.rating)}
+                        </span>{" "}
+                        <span className="font-bold text-slate-900">
+                          {reviews[gig._id]!.rating}/5
+                        </span>
+                        {reviews[gig._id]!.comment ? ` — "${reviews[gig._id]!.comment}"` : ""}
+                      </p>
+                    ) : (
+                      <p className="italic text-slate-400">
+                        {requesterName} hasn't left a review yet.
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

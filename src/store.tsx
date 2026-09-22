@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 
-export type Role = "student" | "delivery" | "employee" | "admin";
+export type Role = "student" | "delivery" | "admin";
 
 export type RequestStatus = "IN PROGRESS" | "LOOKING FOR RUNNER" | "COMPLETED";
 

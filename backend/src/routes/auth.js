@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import "dotenv/config";
 import { User } from "../models/User.js";
 import { audit } from "../models/AuditLog.js";
-import { loginSchema, registerSchema, validate } from "../middleware/validate.js";
+import { loginSchema, registerSchema, validate, profileSchema } from "../middleware/validate.js";
 import { authLimiter } from "../middleware/rateLimit.js";
 import { requireAuth, signToken } from "../middleware/auth.js";
 
@@ -17,7 +17,6 @@ const DUMMY_HASH = "$2a$12$CwTycUXWue0Thq9StjUM0uJ8.aB1u2w1oRz1nJ2yQnQmYYQmB7yDa
 router.post("/register", authLimiter, validate(registerSchema), async (req, res, next) => {
   try {
     const { fullName, studentId, email, password, role } = req.valid;
-    const sid = role === "employee" ? null : studentId;
 
     if (await User.exists({ email })) {
       audit(email, "POST", "/api/auth/register", 422, "Duplicate email", req.ip);
@@ -26,7 +25,7 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res,
         fields: { email: "An account with this email already exists." },
       });
     }
-    if (sid && (await User.exists({ studentId: sid }))) {
+    if (studentId && (await User.exists({ studentId }))) {
       audit(email, "POST", "/api/auth/register", 422, "Duplicate student ID", req.ip);
       return res.status(422).json({
         error: "Invalid payload.",
@@ -36,7 +35,7 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res,
 
     // `password` is a virtual — the pre-save hook bcrypt-hashes it, so the
     // plaintext value never reaches MongoDB Atlas.
-    const user = new User({ fullName, studentId: sid, email, role });
+    const user = new User({ fullName, studentId, email, role });
     user.password = password;
     await user.save();
 
@@ -112,10 +111,62 @@ router.post("/admin/login", authLimiter, validate(loginSchema), async (req, res,
   }
 });
 
-/* GET /api/auth/me -------------------------------------------------------- */
-router.get("/me", requireAuth, async (req, res) => {
-  const user = await User.findById(req.user.id);
-  res.json({ user: user.toSafeJSON() });
+/* GET /api/auth/me ---------------------------------------------------------
+ * Returns the logged-in user's own profile. Always reads req.user.id from the
+ * verified JWT (set by requireAuth) — never from a query param or the body —
+ * so one user can never fetch another user's data by guessing an id.
+ */
+router.get("/me", requireAuth, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+    res.json({ user: user.toSafeJSON() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* PATCH /api/auth/me --------------------------------------------------------
+ * Updates the caller's own editable profile fields. Changing the login email
+ * requires the current password, so a hijacked/left-open session can't be
+ * used to silently take over the account by swapping the email address.
+ */
+router.patch("/me", requireAuth, validate(profileSchema), async (req, res, next) => {
+  try {
+    const { fullName, studentId, email, phone, spot, currentPassword } = req.valid;
+
+    const user = await User.findById(req.user.id).select("+passwordHash");
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    if (email !== user.email) {
+      const ok = await user.verifyPassword(currentPassword);
+      if (!ok) {
+        return res.status(403).json({
+          error: "Current password is incorrect.",
+          fields: { currentPassword: "Current password is incorrect." },
+        });
+      }
+    }
+
+    user.fullName = fullName;
+    user.studentId = studentId;
+    user.email = email;
+    user.phone = phone;
+    user.spot = spot;
+    await user.save();
+
+    audit(user.email, "PATCH", "/api/auth/me", 200, "Profile updated", req.ip);
+    res.json({ user: user.toSafeJSON() });
+  } catch (err) {
+    if (err?.code === 11000) {
+      const isId = "studentId" in (err.keyPattern ?? {});
+      const msg = isId
+        ? "That student ID is already registered."
+        : "That email is already registered.";
+      return res.status(409).json({ error: msg, fields: { [isId ? "studentId" : "email"]: msg } });
+    }
+    next(err);
+  }
 });
 
 export default router;

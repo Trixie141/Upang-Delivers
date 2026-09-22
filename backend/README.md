@@ -114,7 +114,6 @@ student→admin escalation `403` · forged token `401` · auth rate limit `429`.
 
 | Role | Email | Password |
 |---|---|---|
-| Student | john.upang@phinmaed.com | `Upang#2026` |
-| Delivery | mark.tan@phinmaed.com | `Runner#2026` |
-| Employee | ana.reyes@phinmaed.com | `Faculty#2026` |
-| Admin | admin@phinmaed.com | `Admin#2026` |
+| Student | john.upang@phinmaed.com | `Demo@1234` |
+| Delivery | mark.tan@phinmaed.com | `Demo@1234` |
+| Admin | admin@phinmaed.com | `Admin@1234` |

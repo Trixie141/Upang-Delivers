@@ -1,16 +1,32 @@
-import { useState } from "react";
-import { Camera, Coins, CheckCheck, Zap, Star, Calendar, Wallet } from "lucide-react";
-import { useStore } from "../../store";
+import { Coins, CheckCheck, Zap, Wallet } from "lucide-react";
 
-function EarningsChart() {
-  const data = [120, 450, 310, 575, 240, 380, 190];
+export interface RunnerProfileStats {
+  earned: number;
+  completed: number;
+  /** Average minutes per gig, or null when there is no data yet */
+  avgMinutes: number | null;
+  /** Earnings per day, Mon to Sun (7 numbers) */
+  weekly: number[];
+  balance: number;
+}
+
+const EMPTY_STATS: RunnerProfileStats = {
+  earned: 0,
+  completed: 0,
+  avgMinutes: null,
+  weekly: [],
+  balance: 0,
+};
+
+function EarningsChart({ data }: { data: number[] }) {
   const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
   const w = 760;
   const h = 320;
   const pad = { l: 64, r: 20, t: 20, b: 34 };
-  const max = 600;
+  const max = Math.max(100, Math.ceil(Math.max(...data) / 100) * 100);
   const iw = w - pad.l - pad.r;
   const ih = h - pad.t - pad.b;
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(max * f));
 
   const pts = data.map((v, i) => {
     const x = pad.l + (i * iw) / (data.length - 1);
@@ -29,7 +45,7 @@ function EarningsChart() {
 
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="w-full">
-      {[0, 100, 200, 300, 400, 500, 600].map((t) => {
+      {ticks.map((t) => {
         const y = pad.t + ih - (t / max) * ih;
         return (
           <g key={t}>
@@ -40,16 +56,6 @@ function EarningsChart() {
           </g>
         );
       })}
-      {labels.map((l, i) => (
-        <line
-          key={l}
-          x1={pad.l + (i * iw) / (labels.length - 1)}
-          x2={pad.l + (i * iw) / (labels.length - 1)}
-          y1={pad.t}
-          y2={pad.t + ih}
-          stroke="#F5F7F9"
-        />
-      ))}
       <path d={area} fill="#10b981" opacity={0.12} />
       <path d={path} fill="none" stroke="#10b981" strokeWidth={4} strokeLinecap="round" />
       {pts.map((p, i) => (
@@ -70,92 +76,62 @@ function EarningsChart() {
   );
 }
 
-export default function RunnerProfile() {
-  const { profile, updateProfile, pushToast } = useStore();
-  const [editing, setEditing] = useState(false);
-  const [name, setName] = useState(profile.name);
-  const [program, setProgram] = useState(profile.program);
+export default function RunnerProfile({
+  name,
+  stats = EMPTY_STATS,
+}: {
+  name: string;
+  stats?: RunnerProfileStats;
+}) {
+  const initials =
+    name
+      .split(" ")
+      .filter(Boolean)
+      .map((n) => n[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "R";
 
-  const stats = [
-    { label: "TOTAL EARNED", value: "₱3,842.00", sub: "+12% from last month", subTone: "text-emerald-600", icon: Coins, tint: "bg-orange-50 text-orange-500" },
-    { label: "GIGS COMPLETED", value: "54", sub: "100% completion rate", subTone: "text-slate-400", icon: CheckCheck, tint: "bg-sky-50 text-sky-500" },
-    { label: "AVERAGE TIME", value: "18 mins", sub: "Fastest in PTA Building", subTone: "text-slate-400", icon: Zap, tint: "bg-violet-50 text-violet-500" },
+  const cards = [
+    {
+      label: "TOTAL EARNED",
+      value: `₱${stats.earned.toLocaleString()}`,
+      icon: Coins,
+      tint: "bg-orange-50 text-orange-500",
+    },
+    {
+      label: "GIGS COMPLETED",
+      value: stats.completed.toString(),
+      icon: CheckCheck,
+      tint: "bg-sky-50 text-sky-500",
+    },
+    {
+      label: "AVERAGE TIME",
+      value: stats.avgMinutes === null ? "—" : `${stats.avgMinutes} mins`,
+      icon: Zap,
+      tint: "bg-violet-50 text-violet-500",
+    },
   ];
+
+  const hasWeekly = stats.weekly.length === 7 && stats.weekly.some((v) => v > 0);
 
   return (
     <div className="mx-auto max-w-6xl space-y-7 pb-4">
-      <div className="rounded-3xl bg-white p-6 shadow-sm sm:p-8">
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-col gap-6 sm:flex-row sm:items-center">
-            <div className="relative w-fit">
-              <div className="h-36 w-36 overflow-hidden rounded-[26px] bg-white p-2 shadow-lg ring-1 ring-slate-100">
-                <img
-                  src={profile.avatar}
-                  alt={profile.name}
-                  className="h-full w-full rounded-2xl object-cover"
-                />
-              </div>
-              <button
-                onClick={() => pushToast("Photo upload is disabled in this demo.")}
-                className="absolute -bottom-3 right-2 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500 text-white shadow-lg transition hover:bg-emerald-600"
-              >
-                <Camera className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div>
-              {editing ? (
-                <div className="space-y-3">
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-2xl font-bold text-slate-900 outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <input
-                    value={program}
-                    onChange={(e) => setProgram(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-3 text-slate-600 outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-              ) : (
-                <>
-                  <h2 className="text-4xl font-extrabold text-slate-900">{profile.name}</h2>
-                  <p className="mt-1 text-lg text-slate-500">{profile.program}</p>
-                </>
-              )}
-              <div className="mt-4 flex flex-wrap items-center gap-6">
-                <span className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> ACTIVE RUNNER
-                </span>
-                <span className="flex items-center gap-2 font-bold text-slate-900">
-                  <Star className="h-5 w-5 fill-amber-400 text-amber-400" /> 4.9{" "}
-                  <span className="font-normal text-slate-400">(42 reviews)</span>
-                </span>
-                <span className="flex items-center gap-2 text-slate-600">
-                  <Calendar className="h-5 w-5 text-slate-400" />{" "}
-                  <span className="font-bold text-slate-900">Joined August 2026</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={() => {
-              if (editing) {
-                updateProfile({ name, program });
-                pushToast("Profile updated.");
-              }
-              setEditing((v) => !v);
-            }}
-            className="shrink-0 rounded-2xl bg-[#0B1524] px-9 py-4 text-lg font-bold text-white transition hover:bg-slate-800"
-          >
-            {editing ? "Save Profile" : "Edit Profile"}
-          </button>
+      <div className="flex flex-col gap-6 rounded-3xl bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:p-8">
+        <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[26px] bg-emerald-100 text-4xl font-extrabold text-emerald-700">
+          {initials}
+        </div>
+        <div>
+          <h2 className="text-4xl font-extrabold text-slate-900">{name || "Runner"}</h2>
+          <p className="mt-1 text-lg text-slate-500">PHINMA University of Pangasinan</p>
+          <span className="mt-4 flex items-center gap-2 text-sm font-bold text-slate-700">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> ACTIVE RUNNER
+          </span>
         </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-3">
-        {stats.map((s) => {
+        {cards.map((s) => {
           const Icon = s.icon;
           return (
             <div key={s.label} className="rounded-3xl bg-white p-7 shadow-sm">
@@ -164,7 +140,6 @@ export default function RunnerProfile() {
               </div>
               <p className="mt-6 text-xs font-bold tracking-[0.14em] text-slate-400">{s.label}</p>
               <p className="mt-1 text-4xl font-extrabold text-slate-900">{s.value}</p>
-              <p className={`mt-3 text-sm font-semibold ${s.subTone}`}>{s.sub}</p>
             </div>
           );
         })}
@@ -173,19 +148,27 @@ export default function RunnerProfile() {
       <div className="rounded-3xl bg-white p-7 shadow-sm">
         <h3 className="text-2xl font-bold text-slate-900">Weekly Earnings Trend</h3>
         <div className="mt-6">
-          <EarningsChart />
+          {hasWeekly ? (
+            <EarningsChart data={stats.weekly} />
+          ) : (
+            <p className="rounded-2xl bg-slate-50 py-16 text-center text-slate-400">
+              No earnings yet. Complete a gig to start your trend.
+            </p>
+          )}
         </div>
       </div>
 
       <div className="flex flex-col gap-6 rounded-3xl bg-[#0B1524] p-8 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs font-bold tracking-[0.18em] text-slate-400">CURRENT BALANCE</p>
-          <p className="mt-2 text-5xl font-extrabold text-white">₱245.50</p>
-          <p className="mt-2 text-sm text-slate-400">Payouts are released every Friday, 5:00 PM.</p>
+          <p className="mt-2 text-5xl font-extrabold text-white">
+            ₱{stats.balance.toLocaleString()}
+          </p>
         </div>
         <button
-          onClick={() => pushToast("Withdrawal of ₱245.50 requested.")}
-          className="flex items-center justify-center gap-3 rounded-2xl bg-white/10 px-10 py-5 text-lg font-bold text-white ring-1 ring-white/15 transition hover:bg-white/20"
+          disabled
+          title="Withdrawals aren't available yet"
+          className="flex items-center justify-center gap-3 rounded-2xl bg-white/10 px-10 py-5 text-lg font-bold text-white ring-1 ring-white/15 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Wallet className="h-5 w-5" /> Withdraw
         </button>

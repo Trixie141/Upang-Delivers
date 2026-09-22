@@ -13,6 +13,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { api } from "../../lib/api.ts";
+import { formatDeadline } from "../../lib/format.ts";
 
 const filters = [
   { key: "All Errands", icon: null },
@@ -32,6 +33,7 @@ interface ApiErrand {
   dropoff: string;
   reward: number;
   deadline: string;
+  contactPhone: string;
   status: string;
   ownerId?: {
     _id: string;
@@ -40,6 +42,7 @@ interface ApiErrand {
   };
   createdAt: string;
 }
+
 
 export default function BrowseErrands({
   token,
@@ -246,7 +249,7 @@ export default function BrowseErrands({
                         <Clock className="h-5 w-5 text-sky-500" />
                       </span>
                       <p className="text-slate-500">
-                        Deadline: <span className="font-bold text-slate-900">{e.deadline}</span>
+                        Deadline: <span className="font-bold text-slate-900">{formatDeadline(e.deadline)}</span>
                       </p>
                     </div>
                   </div>
@@ -258,6 +261,9 @@ export default function BrowseErrands({
                       </p>
                       <p>
                         <span className="font-bold text-slate-800">Instructions:</span> {e.instructions}
+                      </p>
+                      <p>
+                        <span className="font-bold text-slate-800">Contact Number:</span> {e.contactPhone}
                       </p>
                     </div>
                   )}
@@ -281,7 +287,7 @@ export default function BrowseErrands({
               </div>
             );
           })}
-        </div>
+        </div>  
       )}
     </div>
   );

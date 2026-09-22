@@ -2,6 +2,16 @@ import { useState } from "react";
 import { PlusCircle, AlertCircle } from "lucide-react";
 import { api } from "../lib/api";
 
+// Formats a Date for the `min` attribute of a datetime-local input
+// e.g. "2026-09-21T17:00"
+const toLocalInputValue = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+// Must match the enum in backend validate.js and the Errand model
+const CATEGORIES = ["Food Run", "Printing", "Queuing", "Deliveries", "Others"];
+
 export default function CreateErrand({
   token,
   onSuccess,
@@ -12,40 +22,80 @@ export default function CreateErrand({
   const [formData, setFormData] = useState({
     title: "",
     instructions: "",
-    category: "Food Delivery",
+    category: "Food Run",
     pickup: "",
     dropoff: "",
     reward: "",
-    deadline: "",
+    deadline: "", // stays "" until the user picks a date/time
+    contactPhone: "",
   });
 
   const [loading, setLoading] = useState(false);
   const [banner, setBanner] = useState("");
+  const [fields, setFields] = useState<Record<string, string>>({});
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setBanner("");
+    setFields({});
+
+    // Deadline must be a real date/time in the future before we convert it
+    const deadlineDate = new Date(formData.deadline);
+    if (!formData.deadline || isNaN(deadlineDate.getTime())) {
+      setFields({ deadline: "Pick a valid deadline date and time." });
+      return;
+    }
+    if (deadlineDate.getTime() <= Date.now()) {
+      setFields({ deadline: "Deadline must be in the future." });
+      return;
+    }
+    if (!/^\d{11}$/.test(formData.contactPhone)) {
+      setFields({ contactPhone: "Enter an 11-digit phone number, numbers only." });
+      return;
+    }
 
     const payload = {
       ...formData,
       reward: Number(formData.reward),
+      deadline: deadlineDate.toISOString(),
     };
 
+    // Same rules the backend enforces, checked before sending
+    const clientErrors = api.validateErrand(payload);
+    if (Object.keys(clientErrors).length) {
+      setFields(clientErrors);
+      setBanner("Please fix the highlighted fields.");
+      return;
+    }
+
+    setLoading(true);
     const res = await api.createErrand(token, payload);
     setLoading(false);
 
     if (!res.ok) {
+      setFields(res.fields ?? {}); // shows which field the server rejected
       setBanner(`${res.status} — ${res.error || "Failed to post errand request."}`);
       return;
     }
 
     onSuccess();
   };
+
+  const label = "block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1";
+  const box = (k: string) =>
+    `w-full rounded-2xl border px-4 py-3 text-sm focus:outline-none ${
+      fields[k]
+        ? "border-rose-400 bg-rose-50 focus:border-rose-500"
+        : "border-slate-200 focus:border-emerald-500"
+    }`;
+  const err = (k: string) =>
+    fields[k] ? <p className="mt-1 text-xs font-medium text-rose-600">{fields[k]}</p> : null;
 
   return (
     <div className="mx-auto max-w-2xl rounded-3xl bg-white p-6 shadow-sm sm:p-8">
@@ -63,116 +113,142 @@ export default function CreateErrand({
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-            Errand Title
-          </label>
+          <label className={label}>Errand Title</label>
           <input
             type="text"
             name="title"
             required
+            minLength={6}
+            maxLength={90}
             placeholder="e.g., Pick up printed handouts at Main Library"
             value={formData.title}
             onChange={handleChange}
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-emerald-500 focus:outline-none"
+            className={box("title")}
           />
+          {err("title")}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Category
-            </label>
+            <label className={label}>Category</label>
             <select
               name="category"
               value={formData.category}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-emerald-500 focus:outline-none bg-white"
+              className={`${box("category")} bg-white`}
             >
-              <option value="Food Delivery">Food Delivery</option>
-              <option value="Printing & Documents">Printing & Documents</option>
-              <option value="Item Pickup">Item Pickup</option>
-              <option value="Groceries & Snacks">Groceries & Snacks</option>
-              <option value="Other">Other</option>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             </select>
+            {err("category")}
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Bounty Reward (₱)
-            </label>
+            <label className={label}>Bounty Reward (₱)</label>
             <input
               type="number"
               name="reward"
               required
-              min="1"
+              min="10"
+              max="1000"
+              step="1"
               placeholder="50"
               value={formData.reward}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-emerald-500 focus:outline-none"
+              className={box("reward")}
             />
+            {err("reward")}
           </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Pickup Location
-            </label>
+            <label className={label}>Pickup Location</label>
             <input
               type="text"
               name="pickup"
               required
+              minLength={3}
+              maxLength={80}
               placeholder="e.g., Campus Bookstore"
               value={formData.pickup}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-emerald-500 focus:outline-none"
+              className={box("pickup")}
             />
+            {err("pickup")}
           </div>
 
           <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-              Drop-off Location
-            </label>
+            <label className={label}>Drop-off Location</label>
             <input
               type="text"
               name="dropoff"
               required
+              minLength={3}
+              maxLength={80}
               placeholder="e.g., Science Building - Rm 302"
               value={formData.dropoff}
               onChange={handleChange}
-              className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-emerald-500 focus:outline-none"
+              className={box("dropoff")}
             />
+            {err("dropoff")}
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-            Deadline / Preferred Time
-          </label>
+              
+            <div>
+          <label className={label}>Contact Phone Number</label>
           <input
-            type="text"
-            name="deadline"
+            type="tel"
+            name="contactPhone"
             required
-            placeholder="e.g., Today before 3:00 PM"
-            value={formData.deadline}
-            onChange={handleChange}
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-emerald-500 focus:outline-none"
+            inputMode="numeric"
+            pattern="\d{11}"
+            maxLength={11}
+            placeholder="09171234567"
+            value={formData.contactPhone}
+            onChange={(e) =>
+              setFormData({ ...formData, contactPhone: e.target.value.replace(/\D/g, "").slice(0, 11) })
+            }
+            className={box("contactPhone")}
           />
+          <p className="mt-1 text-xs text-slate-400">
+            Only shown to the runner once they accept your errand.
+          </p>
+          {err("contactPhone")}
         </div>
 
         <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-            Detailed Instructions
-          </label>
+          <label className={label}>Deadline / Preferred Time</label>
+          <input
+            type="datetime-local"
+            name="deadline"
+            required
+            min={toLocalInputValue(new Date())} // blocks past dates/times
+            value={formData.deadline}
+            onChange={handleChange}
+            className={box("deadline")}
+          />
+          {err("deadline")}
+        </div>
+
+        <div>
+          <label className={label}>Detailed Instructions</label>
           <textarea
             name="instructions"
             required
+            minLength={10}
+            maxLength={600}
             rows={3}
             placeholder="Provide specific notes for the runner..."
             value={formData.instructions}
             onChange={handleChange}
-            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm focus:border-emerald-500 focus:outline-none"
+            className={box("instructions")}
           />
+          {err("instructions")}
         </div>
 
         <button

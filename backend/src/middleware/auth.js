@@ -4,7 +4,8 @@ import { User } from "../models/User.js";
 import { audit } from "../models/AuditLog.js";
 
 const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET || JWT_SECRET.length < 32 || /change_?me|replace_?me/i.test(JWT_SECRET)) {  throw new Error("JWT_SECRET is missing or shorter than 32 characters. Set it in backend/.env");
+if (!JWT_SECRET || JWT_SECRET.length < 32 || /change_?me|replace_?me/i.test(JWT_SECRET)) {
+  throw new Error("JWT_SECRET is missing or shorter than 32 characters. Set it in backend/.env");
 }
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "8h";
 const OBJECT_ID = /^[a-f\d]{24}$/i;

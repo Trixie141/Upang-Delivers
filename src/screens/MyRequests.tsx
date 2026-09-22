@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Trash2, Clock, MapPin, AlertCircle, RefreshCw, UserCheck } from "lucide-react";
+import { Trash2, Clock, MapPin, AlertCircle, RefreshCw, UserCheck, Star } from "lucide-react";
 import { api } from "../lib/api";
+import { formatDeadline } from "../lib/format";
 
 interface ErrandRequest {
   _id: string;
@@ -11,9 +12,19 @@ interface ErrandRequest {
   dropoff: string;
   reward: number;
   deadline: string;
+  contactPhone: string;
   status: "open" | "in_progress" | "picked_up" | "review" | "done" | "cancelled";
   ownerId?: string | { _id: string; fullName: string };
   runnerId?: { _id: string; fullName: string } | string | null;
+}
+
+interface ReviewState {
+  loaded: boolean;
+  existing: { rating: number; comment: string } | null;
+  rating: number;
+  comment: string;
+  submitting: boolean;
+  error: string;
 }
 
 export default function MyRequests({ token, userId }: { token: string; userId: string }) {
@@ -21,12 +32,13 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [banner, setBanner] = useState("");
+  const [reviews, setReviews] = useState<Record<string, ReviewState>>({});
 
   const fetchMyRequests = async () => {
     setLoading(true);
     setBanner("");
     const apiClient = api as any;
-    const res = await apiClient.getErrands(token);
+    const res = await (apiClient.getMyErrands?.(token) ?? apiClient.getErrands(token));
     setLoading(false);
 
     if (!res.ok) {
@@ -34,7 +46,8 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
       return;
     }
 
-    // Filter to show only errands created by the logged-in user
+    // /errands/mine already returns errands where I'm the owner OR the runner —
+    // keep only the ones I posted, since this is the requester's own view.
     const ownerRequests = (res.errands || []).filter((e: ErrandRequest) => {
       const owner = typeof e.ownerId === "object" ? e.ownerId?._id : e.ownerId;
       return String(owner) === userId;
@@ -46,6 +59,48 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
   useEffect(() => {
     fetchMyRequests();
   }, [token, userId]);
+
+  // For every completed errand, check whether a review already exists.
+  useEffect(() => {
+    const apiClient = api as any;
+    const doneIds = requests.filter((r) => r.status === "done").map((r) => r._id);
+
+    doneIds.forEach(async (id) => {
+      if (reviews[id]?.loaded) return; // already checked
+
+      const res = await apiClient.getReview(token, id);
+      setReviews((prev) => ({
+        ...prev,
+        [id]: {
+          loaded: true,
+          existing: res.ok ? res.review : null,
+          rating: 5,
+          comment: "",
+          submitting: false,
+          error: "",
+        },
+      }));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requests, token]);
+
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+
+  const handleConfirm = async (id: string) => {
+    setConfirmingId(id);
+    setBanner("");
+
+    const apiClient = api as any;
+    const res = await apiClient.updateErrandStatus(token, id, "done");
+    setConfirmingId(null);
+
+    if (!res.ok) {
+      setBanner(`${res.status} — ${res.error || "Failed to confirm completion."}`);
+      return;
+    }
+
+    setRequests((prev) => prev.map((r) => (r._id === id ? { ...r, status: "done" } : r)));
+  };
 
   const handleCancel = async (id: string) => {
     if (!confirm("Are you sure you want to cancel and remove this errand request?")) return;
@@ -70,6 +125,39 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
 
     // Remove deleted errand from state UI
     setRequests((prev) => prev.filter((r) => r._id !== id));
+  };
+
+  const setReviewField = (id: string, field: "rating" | "comment", value: number | string) => {
+    setReviews((prev) => ({
+      ...prev,
+      [id]: { ...prev[id], [field]: value } as ReviewState,
+    }));
+  };
+
+  const submitReview = async (id: string) => {
+    const draft = reviews[id];
+    if (!draft) return;
+
+    setReviews((prev) => ({ ...prev, [id]: { ...draft, submitting: true, error: "" } }));
+
+    const apiClient = api as any;
+    const res = await apiClient.leaveReview(token, id, {
+      rating: draft.rating,
+      comment: draft.comment,
+    });
+
+    if (!res.ok) {
+      setReviews((prev) => ({
+        ...prev,
+        [id]: { ...draft, submitting: false, error: res.error || "Could not submit review." },
+      }));
+      return;
+    }
+
+    setReviews((prev) => ({
+      ...prev,
+      [id]: { ...draft, submitting: false, existing: res.review, error: "" },
+    }));
   };
 
   const statusBadges = {
@@ -117,6 +205,7 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
               typeof req.runnerId === "object" && req.runnerId
                 ? req.runnerId.fullName
                 : null;
+            const reviewState = reviews[req._id];
 
             return (
               <div key={req._id} className="rounded-3xl bg-white p-6 shadow-sm sm:p-8">
@@ -145,7 +234,11 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
                   </div>
                   <div className="flex items-center gap-2 sm:col-span-2">
                     <Clock className="h-4 w-4 text-sky-500" />
-                    <span><strong>Deadline:</strong> {req.deadline}</span>
+                    <span><strong>Deadline:</strong> {formatDeadline(req.deadline)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 sm:col-span-2">
+                    <Clock className="h-4 w-4 text-slate-400" />
+                    <span><strong>Contact Number:</strong> {req.contactPhone}</span>
                   </div>
                 </div>
 
@@ -168,7 +261,68 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
                       <Trash2 className="h-4 w-4" /> Cancel Request
                     </button>
                   )}
+
+                  {req.status === "review" && (
+                    <button
+                      disabled={confirmingId === req._id}
+                      onClick={() => handleConfirm(req._id)}
+                      className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-5 py-2.5 font-bold text-white transition hover:bg-emerald-600 disabled:opacity-50"
+                    >
+                      {confirmingId === req._id ? "Confirming..." : "Confirm Completion"}
+                    </button>
+                  )}
                 </div>
+
+                {/* Review section — only for completed errands with a runner assigned */}
+                {req.status === "done" && runnerName && reviewState?.loaded && (
+                  <div className="mt-4 border-t border-slate-100 pt-4">
+                    {reviewState.existing ? (
+                      <div className="flex items-center gap-2 text-sm text-slate-600">
+                        <Star className="h-4 w-4 fill-amber-400 text-amber-400" />
+                        <span>
+                          You rated {runnerName} {reviewState.existing.rating}/5
+                          {reviewState.existing.comment ? ` — "${reviewState.existing.comment}"` : ""}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-xs font-bold tracking-wider text-slate-400">
+                          RATE {runnerName?.toUpperCase()}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select
+                            value={reviewState.rating}
+                            onChange={(e) => setReviewField(req._id, "rating", Number(e.target.value))}
+                            className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          >
+                            {[5, 4, 3, 2, 1].map((n) => (
+                              <option key={n} value={n}>
+                                {n} star{n > 1 ? "s" : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            value={reviewState.comment}
+                            onChange={(e) => setReviewField(req._id, "comment", e.target.value)}
+                            maxLength={200}
+                            placeholder="Optional comment"
+                            className="flex-1 min-w-[160px] rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                          />
+                          <button
+                            onClick={() => submitReview(req._id)}
+                            disabled={reviewState.submitting}
+                            className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-bold text-white hover:bg-orange-600 disabled:opacity-50"
+                          >
+                            {reviewState.submitting ? "Submitting..." : "Submit review"}
+                          </button>
+                        </div>
+                        {reviewState.error && (
+                          <p className="text-xs font-medium text-rose-600">{reviewState.error}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}

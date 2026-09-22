@@ -2,7 +2,10 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Eye, EyeOff, Package, ShieldAlert, Gauge } from "lucide-react";
 import { api } from "../lib/api";
 
-type ApiRole = "student" | "delivery" | "employee";
+type ApiRole = "student" | "delivery";
+
+/** What the server returns for a signed-in user (see toSafeJSON in the backend User model). */
+type SessionUser = { id: string; name: string; role: string };
 
 export default function Login({
   onBack,
@@ -11,7 +14,7 @@ export default function Login({
 }: {
   role: ApiRole;
   onBack: () => void;
-  onLogin: (token: string, name: string) => void;
+  onLogin: (token: string, user: SessionUser) => void;
   onSignUp: () => void;
 }) {
   const [email, setEmail] = useState("");
@@ -40,7 +43,7 @@ export default function Login({
     const clientErrors = api.validateLogin({ email, password });
     setFields(clientErrors);
     if (Object.keys(clientErrors).length) {
-      setError("Fix the highlighted fields — the request was never sent.");
+      setError("Fix the highlighted fields - the request was never sent.");
       setBusy(false);
       return;
     }
@@ -51,21 +54,22 @@ export default function Login({
 
     if (!res.ok) {
       setFields(res.fields ?? {});
-      setError(`${res.status} — ${res.error}`);
+      setError(`${res.status} \u2014 ${res.error}`);
       return;
     }
 
-    // 3. Persist JWT Token & trigger callback
+    // 3. The App needs the whole user (id, name, role), not just the name,
+    //    to choose the right layout and to know whose data to show.
     const token = res.data?.token;
-    const name = res.data?.user?.name;
+    const user = res.data?.user;
 
-    if (!token || !name) {
+    if (!token || !user?.id || !user?.name || !user?.role) {
       setError("Login succeeded but the session data is incomplete.");
       return;
     }
 
     localStorage.setItem("token", token);
-    onLogin(token, name);
+    onLogin(token, { id: user.id, name: user.name, role: user.role });
   }
 
   return (
@@ -156,7 +160,7 @@ export default function Login({
             Rate limit: <span className="font-bold text-slate-700">{limit.remaining}</span> of{" "}
             {api.LIMIT} attempts left in this 60s window
             {limit.retryIn > 0 && (
-              <span className="font-bold text-rose-500">• locked {limit.retryIn}s</span>
+              <span className="font-bold text-rose-500">&bull; locked {limit.retryIn}s</span>
             )}
           </div>
 

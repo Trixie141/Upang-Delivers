@@ -90,5 +90,4 @@ cd backend && npm run test:security
 |---|---|---|
 | Student | john.upang@phinmaed.com | `Upang#2026` |
 | Delivery | mark.tan@phinmaed.com | `Runner#2026` |
-| Employee | ana.reyes@phinmaed.com | `Faculty#2026` |
 | Admin *(separate portal)* | admin@phinmaed.com | `Admin#2026` |

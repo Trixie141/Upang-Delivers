@@ -20,9 +20,24 @@ const errandSchema = new mongoose.Schema(
     },
     pickup: { type: String, required: true, trim: true, maxlength: 80 },
     dropoff: { type: String, required: true, trim: true, maxlength: 80 },
-    reward: { type: Number, required: true, min: 20, max: 1000 },
+    reward: {
+      type: Number,
+      required: true,
+      min: 20,
+      max: 1000,
+      validate: { validator: Number.isInteger, message: "Reward must be a whole number." },
+    },
     cod: { type: Boolean, default: false },
-    deadline: { type: String, required: true, trim: true, maxlength: 60 },
+    deadline: { type: Date, required: true },
+    // Poster's contact number, shown to the runner once they're assigned.
+    // Digits only, exactly 11 (PH mobile format, e.g. 09XXXXXXXXX) — no
+    // spaces, dashes, or +63, so the runner can tap-to-call without editing it.
+    contactPhone: {
+      type: String,
+      required: true,
+      trim: true,
+      match: [/^\d{11}$/, "Phone number must be exactly 11 digits, numbers only."],
+    },
     status: {
       type: String,
       enum: ["open", "in_progress", "picked_up", "review", "done", "cancelled"],

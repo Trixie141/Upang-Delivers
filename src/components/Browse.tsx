@@ -13,7 +13,12 @@ interface Errand {
   deadline: string;
   status: string;
 }
-
+const formatDeadline = (value: string) => {
+  const d = new Date(value);
+  return isNaN(d.getTime())
+    ? value
+    : d.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" });
+};
 export default function Browse({ token, userRole }: { token: string; userRole: string }) {
   const [errands, setErrands] = useState<Errand[]>([]);
   const [loading, setLoading] = useState(true);
@@ -132,7 +137,7 @@ export default function Browse({ token, userRole }: { token: string; userRole: s
                   </div>
                   <div className="flex items-center gap-2">
                     <Clock className="h-3.5 w-3.5 text-sky-500" />
-                    <span><strong>Deadline:</strong> {errand.deadline}</span>
+                    <span><strong>Deadline:</strong> {formatDeadline(errand.deadline)}</span>
                   </div>
                 </div>
               </div>
