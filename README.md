@@ -5,8 +5,7 @@ The project is split into two independent workspaces:
 
 ```
 upang-delivers/
-├── frontend/          React 19 + Vite + Tailwind 4  (this repo root)
-│   ├── src/
+├──src/         React 19 + Vite + Tailwind 4  (this repo root)
 │   │   ├── screens/           landing, role select, login, sign up
 │   │   │   ├── runner/        browse errands, my gigs, runner profile
 │   │   │   └── admin/         dashboard, users, runners, errands,
@@ -88,6 +87,6 @@ cd backend && npm run test:security
 
 | Role | Email | Password |
 |---|---|---|
-| Student | john.upang@phinmaed.com | `Upang#2026` |
-| Delivery | mark.tan@phinmaed.com | `Runner#2026` |
-| Admin *(separate portal)* | admin@phinmaed.com | `Admin#2026` |
+| Student | john.upang@phinmaed.com | `Demo@1234` |
+| Delivery | mark.tan@phinmaed.com | `Demo@1234` |
+| Admin *(separate portal)* | admin@phinmaed.com | `Admin@1234` |
