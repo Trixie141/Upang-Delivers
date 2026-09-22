@@ -5,8 +5,7 @@ The project is split into two independent workspaces:
 
 ```
 upang-delivers/
-├── frontend/          React 19 + Vite + Tailwind 4  (this repo root)
-│   ├── src/
+├──src/         React 19 + Vite + Tailwind 4  (this repo root)
 │   │   ├── screens/           landing, role select, login, sign up
 │   │   │   ├── runner/        browse errands, my gigs, runner profile
 │   │   │   └── admin/         dashboard, users, runners, errands,
