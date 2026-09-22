@@ -1,4 +1,4 @@
-const BASE_URL = "/api";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 /** Mirrors backend/src/middleware/rateLimit.js: 5 attempts / 60s per (IP + email). */
 const LIMIT = 5;

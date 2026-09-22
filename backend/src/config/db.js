@@ -21,6 +21,7 @@ export async function connectDB() {
       dbName: process.env.MONGODB_DB || "upang_delivers",
       serverSelectionTimeoutMS: 10_000,
       maxPoolSize: 10,
+      family: 4, // <-- force IPv4, avoids Windows IPv6 TLS handshake issues with Atlas
     });
   } catch (err) {
     console.error("\n  Could not reach MongoDB Atlas:", err.message);

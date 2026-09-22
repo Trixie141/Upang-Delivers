@@ -7,16 +7,34 @@ const windowMs = Number(process.env.AUTH_RATE_WINDOW_MS || 60_000);
 const max = Number(process.env.AUTH_RATE_MAX || 5);
 
 /**
- * Counters live in MongoDB Atlas (collection `rate_limits`) instead of process
- * memory, so the limit still holds across restarts and multiple instances.
+ * rate-limit-mongo connects with its own MongoClient and ignores mongoose's
+ * dbName option — if the URI has no database in its path, MongoClient
+ * defaults to "test", where our Atlas user has no permissions.
+ * This forces the same database (upang_delivers) into the URI's path.
  */
+function withDbName(uri, dbName) {
+  try {
+    const url = new URL(uri);
+    if (!url.pathname || url.pathname === "/") {
+      url.pathname = `/${dbName}`;
+    }
+    return url.toString();
+  } catch {
+    console.warn("  rate-limit: could not parse MONGODB_URI, using as-is");
+    return uri;
+  }
+}
+
 function mongoStore(collectionName) {
   if (!process.env.MONGODB_URI) {
     console.warn(`  rate-limit: MONGODB_URI not set, "${collectionName}" is using memory`);
     return undefined;
   }
+
+  const uri = withDbName(process.env.MONGODB_URI, process.env.MONGODB_DB || "upang_delivers");
+
   return new MongoStore({
-    uri: process.env.MONGODB_URI,
+    uri,
     collectionName,
     expireTimeMs: windowMs,
     errorHandler: (e) => console.error("  rate-limit store:", e.message),
