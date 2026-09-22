@@ -55,7 +55,11 @@ export const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: mongoStore("rate_limits_auth"),
-  keyGenerator: (req) => `${req.ip}:${emailKey(req)}`,
+  keyGenerator: (req) => {
+  const key = `${req.ip}:${emailKey(req)}`;
+  console.log("RATE LIMIT KEY:", key, "| X-Forwarded-For:", req.headers["x-forwarded-for"]);
+  return key;
+},
   handler: (req, res) => {
     const retryIn = Math.ceil(windowMs / 1000);
     audit(emailKey(req), req.method, req.originalUrl, 429, `Rate limit hit (${max}/${retryIn}s)`, req.ip);

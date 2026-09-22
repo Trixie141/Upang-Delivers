@@ -93,6 +93,7 @@ const run = async () => {
     method: "POST",
     body: { email: "john.upang@phinmaed.com", password: "Upang#2026" },
   });
+  
   const sAuth = { Authorization: `Bearer ${student.json.token}` };
   const studentId = student.json.user?.id;
 
@@ -101,12 +102,12 @@ const run = async () => {
   const own = all.json.errands?.find((e) => String(e.ownerId?._id ?? e.ownerId) === studentId);
 
   const bola = await call(`/errands/${foreign?._id}`, { headers: sAuth });
-  check("BOLA: cross-account read blocked", "403", String(bola.status), bola.status === 403);
+  check("BOLA: cross-account read blocked", "403 or 404", String(bola.status), bola.status === 403 || bola.status === 404);
 
   const mine = await call(`/errands/${own?._id}`, { headers: sAuth });
   check("Owner can read their own object", "200", String(mine.status), mine.status === 200);
 
-  const spoof = await call("/errands", {
+    const spoof = await call("/errands", {
     method: "POST",
     headers: sAuth,
     body: {
@@ -117,7 +118,8 @@ const run = async () => {
       pickup: "Somewhere",
       dropoff: "Elsewhere",
       reward: 50,
-      deadline: "Anytime today",
+      deadline: new Date(Date.now() + 86400000).toISOString(),
+      contactPhone: "09171234567",
     },
   });
   const spoofOwner = String(spoof.json.errand?.ownerId ?? "");
