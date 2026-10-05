@@ -26,6 +26,7 @@ export default function CreateErrand({
     pickup: "",
     dropoff: "",
     reward: "",
+    paymentMethod: "cash_on_delivery",
     deadline: "", // stays "" until the user picks a date/time
     contactPhone: "",
   });
@@ -37,7 +38,8 @@ export default function CreateErrand({
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const value = e.target.name === "reward" ? e.target.value.replace(/\D/g, "") : e.target.value;
+    setFormData({ ...formData, [e.target.name]: value });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -152,7 +154,7 @@ export default function CreateErrand({
               type="number"
               name="reward"
               required
-              min="10"
+              min="20"
               max="1000"
               step="1"
               placeholder="50"
@@ -233,6 +235,21 @@ export default function CreateErrand({
             className={box("deadline")}
           />
           {err("deadline")}
+        </div>
+
+        <div>
+          <label className={label}>Payment Method</label>
+          <select
+            name="paymentMethod"
+            value={formData.paymentMethod}
+            onChange={handleChange}
+            className={box("paymentMethod")}
+          >
+            <option value="cash_on_delivery">Cash on delivery</option>
+            <option value="e_wallet">E-wallet (GCash/Maya)</option>
+            <option value="bank_transfer">Bank transfer</option>
+          </select>
+          <p className="mt-1 text-xs text-slate-400">E-wallet and bank transfers are arranged directly; the app does not process payments.</p>
         </div>
 
         <div>

@@ -13,7 +13,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { api } from "../../lib/api.ts";
-import { formatDeadline } from "../../lib/format.ts";
+import { formatDeadline, formatPaymentMethod } from "../../lib/format.ts";
 
 const filters = [
   { key: "All Errands", icon: null },
@@ -33,6 +33,8 @@ interface ApiErrand {
   dropoff: string;
   reward: number;
   deadline: string;
+  paymentMethod?: string;
+  cod?: boolean;
   contactPhone: string;
   status: string;
   ownerId?: {
@@ -120,6 +122,11 @@ export default function BrowseErrands({
     setAcceptingId(null);
 
     if (!res.ok) {
+      if (res.status === 409) {
+        await fetchErrands();
+        setBanner("Another runner accepted this gig first, or its deadline passed. The open list has been refreshed.");
+        return;
+      }
       setBanner(`${res.status ?? 500} — ${res.error || "Could not accept gig."}`);
       return;
     }
@@ -252,6 +259,9 @@ export default function BrowseErrands({
                         Deadline: <span className="font-bold text-slate-900">{formatDeadline(e.deadline)}</span>
                       </p>
                     </div>
+                    <p className="pl-[3.25rem] text-sm text-slate-500">
+                      Payment: <span className="font-bold text-slate-900">{formatPaymentMethod(e.paymentMethod, e.cod)}</span>
+                    </p>
                   </div>
 
                   {details === e._id && (

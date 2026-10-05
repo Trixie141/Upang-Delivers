@@ -102,7 +102,8 @@ const run = async () => {
   const own = all.json.errands?.find((e) => String(e.ownerId?._id ?? e.ownerId) === studentId);
 
   const bola = await call(`/errands/${foreign?._id}`, { headers: sAuth });
-  check("BOLA: cross-account read blocked", "403 or 404", String(bola.status), bola.status === 403 || bola.status === 404);
+    check("BOLA: cross-account read blocked", "403 or 404", String(bola.status), bola.status === 403 || bola.status === 404);
+
 
   const mine = await call(`/errands/${own?._id}`, { headers: sAuth });
   check("Owner can read their own object", "200", String(mine.status), mine.status === 200);

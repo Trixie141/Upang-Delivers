@@ -1,4 +1,6 @@
 import { Compass, ShoppingBag, UserCircle, LogOut } from "lucide-react";
+import BrandLogo from "./BrandLogo";
+import NotificationBell from "./NotificationBell";
 
 export type RunnerTab = "browse" | "gigs" | "profile";
 
@@ -6,6 +8,7 @@ interface RunnerNavbarProps {
   activeTab: RunnerTab;
   setActiveTab: (tab: RunnerTab) => void;
   name: string;
+  token: string;
   onLogout: () => void;
 }
 
@@ -19,20 +22,18 @@ export default function RunnerNavbar({
   activeTab,
   setActiveTab,
   name,
+  token,
   onLogout,
 }: RunnerNavbarProps) {
   return (
-    <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/80 backdrop-blur-md">
+    <header className="sticky top-0 z-50 border-b border-emerald-100 bg-gradient-to-r from-white/95 via-emerald-50/95 to-green-100/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
         {/* Brand / Logo */}
         <div
           onClick={() => setActiveTab("browse")}
           className="flex cursor-pointer items-center gap-2 font-extrabold text-slate-900"
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-md shadow-emerald-200">
-            <Compass className="h-5 w-5" />
-          </div>
-          <span className="text-lg tracking-tight">CampusErrands</span>
+          <BrandLogo />
         </div>
 
         {/* Desktop Navigation Links */}
@@ -46,11 +47,11 @@ export default function RunnerNavbar({
                 onClick={() => setActiveTab(item.id)}
                 className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all ${
                   isActive
-                    ? "bg-white text-slate-900 shadow-sm"
+                    ? "bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-sm"
                     : "text-slate-500 hover:text-slate-800"
                 }`}
               >
-                <Icon className={`h-4 w-4 ${isActive ? "text-emerald-500" : ""}`} />
+                  <Icon className={`h-4 w-4 ${isActive ? "text-white" : ""}`} />
                 {item.label}
               </button>
             );
@@ -59,6 +60,7 @@ export default function RunnerNavbar({
 
         {/* User */}
         <div className="flex items-center gap-3">
+          <NotificationBell token={token} onOpen={() => setActiveTab("browse")} />
           <div className="hidden text-right text-xs md:block">
             <p className="font-bold text-slate-900">{name || "Runner"}</p>
             <p className="text-slate-400">Delivery Runner</p>

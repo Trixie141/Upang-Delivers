@@ -19,3 +19,4 @@ backend/.env
 *.log
 
 backend/body.json
+.demo-state/

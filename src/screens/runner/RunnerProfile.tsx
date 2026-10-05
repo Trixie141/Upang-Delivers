@@ -1,4 +1,4 @@
-import { Coins, CheckCheck, Zap, Wallet } from "lucide-react";
+import { Coins, CheckCheck, Zap, Wallet, Star } from "lucide-react";
 
 export interface RunnerProfileStats {
   earned: number;
@@ -79,9 +79,17 @@ function EarningsChart({ data }: { data: number[] }) {
 export default function RunnerProfile({
   name,
   stats = EMPTY_STATS,
+  available = true,
+  rating = null,
+  reviewCount = 0,
+  reviews = [],
 }: {
   name: string;
   stats?: RunnerProfileStats;
+  available?: boolean;
+  rating?: number | null;
+  reviewCount?: number;
+  reviews?: { rating: number; comment?: string; createdAt?: string }[];
 }) {
   const initials =
     name
@@ -111,6 +119,12 @@ export default function RunnerProfile({
       icon: Zap,
       tint: "bg-violet-50 text-violet-500",
     },
+    {
+      label: "RUNNER RATING",
+      value: rating === null ? "—" : `${rating.toFixed(1)} / 5`,
+      icon: Star,
+      tint: "bg-amber-50 text-amber-500",
+    },
   ];
 
   const hasWeekly = stats.weekly.length === 7 && stats.weekly.some((v) => v > 0);
@@ -124,13 +138,14 @@ export default function RunnerProfile({
         <div>
           <h2 className="text-4xl font-extrabold text-slate-900">{name || "Runner"}</h2>
           <p className="mt-1 text-lg text-slate-500">PHINMA University of Pangasinan</p>
-          <span className="mt-4 flex items-center gap-2 text-sm font-bold text-slate-700">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /> ACTIVE RUNNER
+          <span className={`mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-bold ${available ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+            <span className={`h-2.5 w-2.5 rounded-full ${available ? "bg-emerald-500" : "bg-slate-400"}`} />
+            {available ? "AVAILABLE FOR GIGS" : "NOT TAKING GIGS"}
           </span>
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {cards.map((s) => {
           const Icon = s.icon;
           return (
@@ -144,6 +159,29 @@ export default function RunnerProfile({
           );
         })}
       </div>
+
+      <section className="rounded-3xl bg-white p-7 shadow-sm" aria-labelledby="runner-reviews-heading">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <h3 id="runner-reviews-heading" className="text-2xl font-bold text-slate-900">Student Reviews</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {reviewCount ? `${reviewCount} rating${reviewCount === 1 ? "" : "s"} received` : "Ratings appear after completed gigs are reviewed."}
+            </p>
+          </div>
+          {rating !== null && <p className="text-lg font-extrabold text-amber-600">★ {rating.toFixed(1)} average</p>}
+        </div>
+        {reviews.length > 0 ? (
+          <div className="mt-5 space-y-3">
+            {reviews.map((review, index) => (
+              <article key={`${review.createdAt ?? "review"}-${index}`} className="rounded-2xl bg-emerald-50/60 p-4">
+                <p className="font-bold text-amber-600">{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</p>
+                {review.comment && <p className="mt-1 text-sm leading-6 text-slate-700">{review.comment}</p>}
+                {review.createdAt && <time className="mt-2 block text-xs text-slate-400">{new Date(review.createdAt).toLocaleDateString()}</time>}
+              </article>
+            ))}
+          </div>
+        ) : <p className="mt-5 rounded-2xl bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">No reviews yet.</p>}
+      </section>
 
       <div className="rounded-3xl bg-white p-7 shadow-sm">
         <h3 className="text-2xl font-bold text-slate-900">Weekly Earnings Trend</h3>

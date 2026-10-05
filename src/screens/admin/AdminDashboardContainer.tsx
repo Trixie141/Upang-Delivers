@@ -62,8 +62,11 @@ function build(users: any[], errands: any[]) {
   const stats: AdminStats = {
     totalUsers: users.length,
     activeErrands: errands.filter((e) => ACTIVE_STATUSES.includes(e.status)).length,
+    openErrands: errands.filter((e) => e.status === "open" && new Date(e.deadline).getTime() > Date.now()).length,
     completedToday: done.filter((e) => whenOf(e).toDateString() === today.toDateString()).length,
     revenue: Math.round(done.reduce((sum, e) => sum + (Number(e.reward) || 0), 0) * REVENUE_RATE),
+    overdueErrands: errands.filter((e) => ["open", "in_progress", "picked_up"].includes(e.status) && new Date(e.deadline).getTime() <= Date.now()).length,
+    cancellations: errands.filter((e) => e.status === "cancelled").length,
   };
 
   const activity: ActivityItem[] = [...errands]
@@ -95,7 +98,7 @@ export default function AdminDashboardContainer({ token }: { token: string }) {
   useEffect(() => {
     let alive = true;
 
-    Promise.all([api.getUsers(token), api.getAdminErrands(token)]).then(([userRes, errRes]) => {
+    Promise.all([api.getUsers(token), api.getAdminErrands(token), api.getStats(token)]).then(([userRes, errRes, statsRes]) => {
       if (!alive) return;
 
       if (!errRes.ok) {
@@ -108,7 +111,17 @@ export default function AdminDashboardContainer({ token }: { token: string }) {
 
       const ul = userRes.ok ? (userRes.users ?? userRes.data ?? []) : [];
       const el = errRes.errands ?? errRes.data ?? [];
-      setData(build(Array.isArray(ul) ? ul : [], Array.isArray(el) ? el : []));
+      const built = build(Array.isArray(ul) ? ul : [], Array.isArray(el) ? el : []);
+      if (statsRes.ok) {
+        built.stats.totalUsers = Number(statsRes.totalUsers ?? built.stats.totalUsers);
+        built.stats.activeErrands = Number(statsRes.activeErrands ?? built.stats.activeErrands);
+        built.stats.openErrands = Number(statsRes.openErrands ?? built.stats.openErrands);
+        built.stats.completedToday = Number(statsRes.completedToday ?? built.stats.completedToday);
+        built.stats.overdueErrands = Number(statsRes.overdueErrands ?? built.stats.overdueErrands);
+        built.stats.cancellations = Number(statsRes.cancellations ?? built.stats.cancellations);
+        built.stats.revenue = Math.round(Number(statsRes.revenue ?? built.stats.revenue) * REVENUE_RATE);
+      }
+      setData(built);
     });
 
     return () => {

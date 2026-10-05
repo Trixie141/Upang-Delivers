@@ -40,7 +40,19 @@ The script copies each workspace into its own folder, strips `node_modules`,
 `dist` and the SQLite files, then zips the result. If `zip` is not installed it
 falls back to `.tar.gz`.
 
-## Run both sides
+## Run the live demo on Windows
+
+After dependencies and `backend/.env` are configured, double-click **Start Demo.cmd**.
+It starts the API and website in the background, reuses a running local server
+instead of starting a duplicate, and opens the browser at `http://localhost:5173`.
+Double-click **Stop Demo.cmd** when finished. Service logs are saved in the ignored
+`.demo-state/logs` folder.
+
+The launcher uses Node directly, so it does not depend on the `npm` command shim.
+If Node is installed in a nonstandard location, set `NODE_EXE` to the full path of
+`node.exe` before starting.
+
+## Run both sides manually
 
 **Terminal 1 — backend**
 
@@ -89,4 +101,4 @@ cd backend && npm run test:security
 |---|---|---|
 | Student | john.upang@phinmaed.com | `Demo@1234` |
 | Delivery | mark.tan@phinmaed.com | `Demo@1234` |
-| Admin *(separate portal)* | admin@phinmaed.com | `Admin@1234` |
+| Admin *(separate portal)* | admin@phinmaed.com | `Admin#2026` |

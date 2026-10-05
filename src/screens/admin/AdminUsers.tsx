@@ -20,6 +20,11 @@ const TABS = [
 
 const nameOf = (u: any) => u.fullName ?? u.name ?? "Unknown";
 const idOf = (u: any) => String(u._id ?? u.id ?? "");
+const isPending = (u: any) => u.emailVerified === false;
+const joinedDay = (u: any) => {
+  const date = new Date(u.createdAt ?? 0);
+  return isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+};
 const refId = (v: any) =>
   v && typeof v === "object" ? String(v._id ?? v.id ?? "") : v ? String(v) : "";
 
@@ -30,6 +35,9 @@ export default function AdminUsers({ token }: { token: string }) {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [tab, setTab] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [joinedFrom, setJoinedFrom] = useState("");
+  const [joinedTo, setJoinedTo] = useState("");
   const [page, setPage] = useState(1);
   const [busyId, setBusyId] = useState("");
 
@@ -83,10 +91,13 @@ export default function AdminUsers({ token }: { token: string }) {
     const q = query.trim().toLowerCase();
     return users.filter(
       (u) =>
-        (tab === "all" || u.role === tab) &&
-        (nameOf(u) + (u.studentId ?? "") + (u.email ?? "")).toLowerCase().includes(q)
+        (tab === "all" || (tab === "pending" ? isPending(u) : u.role === tab)) &&
+        (statusFilter === "all" || (statusFilter === "pending" ? isPending(u) : u.status === statusFilter)) &&
+        (!joinedFrom || joinedDay(u) >= joinedFrom) &&
+        (!joinedTo || joinedDay(u) <= joinedTo) &&
+        (nameOf(u) + (u.studentId ?? "") + (u.email ?? "") + (u.role ?? "") + (u.status ?? "")).toLowerCase().includes(q)
     );
-  }, [users, tab, query]);
+  }, [users, tab, statusFilter, joinedFrom, joinedTo, query]);
 
   const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
   const current = Math.min(page, pages);
@@ -96,17 +107,25 @@ export default function AdminUsers({ token }: { token: string }) {
   const first = Math.max(1, Math.min(current - 2, pages - 4));
   const pageNumbers = Array.from({ length: Math.min(5, pages) }, (_, i) => first + i);
 
-  async function toggleStatus(u: any) {
-    const suspended = u.status === "suspended";
-    const next = suspended ? "active" : "suspended";
-
-    if (!suspended && !window.confirm(`Suspend ${nameOf(u)}? They will not be able to log in.`)) {
+  async function changeStatus(u: any, next: "active" | "suspended") {
+    const approving = next === "active" && u.status === "pending";
+    if (approving && u.emailVerified === false) {
+      setError("This account must verify its email before it can be approved.");
+      return;
+    }
+    const action = next === "active"
+      ? `${approving ? "Approve" : "Reactivate"} ${nameOf(u)}?`
+      : `${u.status === "pending" ? "Reject" : "Suspend"} ${nameOf(u)}?`;
+    if (!window.confirm(action)) return;
+    const reason = next === "suspended" ? window.prompt("Enter a reason (at least 8 characters):")?.trim() ?? "" : "";
+    if (next === "suspended" && reason.length < 8) {
+      setError("A reason of at least 8 characters is required. No changes were made.");
       return;
     }
 
     setBusyId(idOf(u));
     setError("");
-    const res = await api.setUserStatus(token, idOf(u), next);
+    const res = await api.setUserStatus(token, idOf(u), next, reason);
     setBusyId("");
 
     if (!res.ok) {
@@ -151,6 +170,20 @@ export default function AdminUsers({ token }: { token: string }) {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-end gap-3 rounded-2xl bg-white p-4 shadow-sm">
+        <label className="text-xs font-bold tracking-wide text-slate-500">ACCOUNT STATUS
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="mt-1 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700">
+            <option value="all">All statuses</option><option value="pending">Needs attention</option><option value="active">Active</option><option value="suspended">Suspended</option>
+          </select>
+        </label>
+        <label className="text-xs font-bold tracking-wide text-slate-500">JOINED FROM
+          <input type="date" value={joinedFrom} onChange={(e) => { setJoinedFrom(e.target.value); setPage(1); }} className="mt-1 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700" />
+        </label>
+        <label className="text-xs font-bold tracking-wide text-slate-500">JOINED TO
+          <input type="date" value={joinedTo} onChange={(e) => { setJoinedTo(e.target.value); setPage(1); }} className="mt-1 block rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700" />
+        </label>
+      </div>
+
       {error && (
         <p className="rounded-2xl border border-rose-200 bg-rose-50 px-6 py-4 font-medium text-rose-600">
           {error}
@@ -162,11 +195,11 @@ export default function AdminUsers({ token }: { token: string }) {
           <thead>
             <tr className="text-xs font-bold tracking-[0.12em] text-slate-400">
               <th className="px-6 py-5">NAME</th>
-              <th className="px-6 py-5">EMAIL</th>
+              <th className="px-6 py-5">EMAIL & VERIFICATION</th>
               <th className="px-6 py-5">ROLE</th>
               <th className="px-6 py-5">STATUS</th>
               <th className="px-6 py-5">ERRANDS</th>
-              <th className="px-6 py-5" />
+              <th className="px-6 py-5">ADMIN ACTION</th>
             </tr>
           </thead>
           <tbody>
@@ -188,6 +221,7 @@ export default function AdminUsers({ token }: { token: string }) {
               rows.map((u, i) => {
                 const role = ROLE_META[u.role];
                 const suspended = u.status === "suspended";
+                const pending = isPending(u);
                 const c = counts.get(idOf(u)) ?? { posted: 0, completed: 0 };
                 return (
                   <tr key={idOf(u) || i} className="border-t border-slate-100 align-top">
@@ -202,7 +236,13 @@ export default function AdminUsers({ token }: { token: string }) {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-5 text-sm text-slate-500">{u.email}</td>
+                    <td className="px-6 py-5 text-sm text-slate-500">
+                      <p>{u.email}</p>
+                      <p className={`mt-1 text-xs font-semibold ${u.emailVerified === false ? "text-amber-700" : "text-emerald-700"}`}>
+                        {u.emailVerified === false ? "Email not verified" : "Email verified"}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">Joined {u.createdAt ? new Date(u.createdAt).toLocaleDateString("en-PH") : "date unavailable"}</p>
+                    </td>
                     <td className="px-6 py-5 whitespace-nowrap">
                       <span
                         className={`rounded-lg px-3 py-1 text-xs font-bold ${
@@ -215,10 +255,10 @@ export default function AdminUsers({ token }: { token: string }) {
                     <td className="px-6 py-5 whitespace-nowrap">
                       <span
                         className={`rounded-lg px-3 py-1 text-xs font-bold ${
-                          suspended ? "bg-rose-50 text-rose-500" : "bg-emerald-50 text-emerald-600"
+                          suspended ? "bg-rose-50 text-rose-500" : pending ? "bg-amber-50 text-amber-700" : "bg-emerald-50 text-emerald-600"
                         }`}
                       >
-                        {suspended ? "Suspended" : "Active"}
+                        {suspended ? "Suspended" : pending ? "Needs Verification" : "Active"}
                       </span>
                     </td>
                     <td className="px-6 py-5 whitespace-nowrap text-sm text-slate-600">
@@ -234,9 +274,11 @@ export default function AdminUsers({ token }: { token: string }) {
                     <td className="px-6 py-5 text-right">
                       {u.role === "admin" ? (
                         <span className="text-slate-300">—</span>
+                      ) : pending ? (
+                        <span className="text-sm text-slate-400">Waiting for email verification</span>
                       ) : (
                         <button
-                          onClick={() => toggleStatus(u)}
+                          onClick={() => changeStatus(u, suspended ? "active" : "suspended")}
                           disabled={busyId === idOf(u)}
                           className={`rounded-xl border px-5 py-2 font-semibold transition disabled:opacity-50 ${
                             suspended

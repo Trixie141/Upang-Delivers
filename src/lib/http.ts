@@ -81,6 +81,5 @@ export const adminApi = {
   users: () => http.get("/admin/users"),
   hashes: () => http.get("/admin/users/hashes"),
   errands: () => http.get("/admin/errands"),
-  auditLog: (limit = 50) => http.get(`/admin/audit-log?limit=${limit}`),
   stats: () => http.get("/admin/stats"),
 };

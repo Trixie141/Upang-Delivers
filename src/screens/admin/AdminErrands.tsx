@@ -1,17 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw, Search } from "lucide-react";
 import { api } from "@/lib/api";
+import { formatPaymentMethod } from "@/lib/format";
 
 const PAGE_SIZE = 10;
 
 // Statuses the backend actually uses
 const STATUS_META: Record<string, { label: string; tint: string }> = {
-  open: { label: "Open", tint: "bg-sky-50 text-sky-600" },
-  in_progress: { label: "In progress", tint: "bg-amber-50 text-amber-600" },
-  picked_up: { label: "Picked up", tint: "bg-violet-50 text-violet-600" },
-  review: { label: "In review", tint: "bg-orange-50 text-orange-600" },
-  done: { label: "Done", tint: "bg-emerald-50 text-emerald-600" },
-  cancelled: { label: "Cancelled", tint: "bg-slate-100 text-slate-500" },
+  open: { label: "Open", tint: "bg-gradient-to-r from-emerald-50 to-green-100 text-emerald-700" },
+  in_progress: { label: "In progress", tint: "bg-gradient-to-r from-green-100 to-emerald-200 text-emerald-800" },
+  picked_up: { label: "Picked up", tint: "bg-gradient-to-r from-emerald-200 to-green-300 text-emerald-900" },
+  review: { label: "In review", tint: "bg-gradient-to-r from-green-300 to-emerald-400 text-emerald-950" },
+  done: { label: "Done", tint: "bg-gradient-to-r from-emerald-500 to-green-600 text-white" },
+  cancelled: { label: "Cancelled", tint: "bg-gradient-to-r from-slate-100 to-slate-200 text-slate-600" },
 };
 
 const TABS = [{ key: "all", label: "All Errands" }].concat(
@@ -23,6 +24,11 @@ const formatDate = (value: string) => {
   return isNaN(d.getTime())
     ? value || "—"
     : d.toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" });
+};
+
+const campusDay = (value: string) => {
+  const date = new Date(value);
+  return isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
 };
 
 const shortId = (e: any) => `#ERR-${String(e._id ?? e.id ?? "").slice(-5).toUpperCase()}`;
@@ -42,8 +48,12 @@ export default function AdminErrands({ token }: { token: string }) {
   const [error, setError] = useState("");
   const [tab, setTab] = useState("all");
   const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
   const [reviews, setReviews] = useState<Record<string, RowReview | null>>({});
+  const [busyId, setBusyId] = useState("");
 
   async function load() {
     setLoading(true);
@@ -98,13 +108,17 @@ export default function AdminErrands({ token }: { token: string }) {
     const q = query.trim().toLowerCase();
     return errands.filter((e) => {
       if (tab !== "all" && e.status !== tab) return false;
+      if (categoryFilter !== "all" && e.category !== categoryFilter) return false;
+      const day = campusDay(e.createdAt ?? "");
+      if (dateFrom && (!day || day < dateFrom)) return false;
+      if (dateTo && (!day || day > dateTo)) return false;
       if (!q) return true;
-      return [e.title, e.category, e.pickup, e.dropoff, shortId(e), nameOf(e.ownerId ?? e.owner_id)]
+      return [e.title, e.category, e.pickup, e.dropoff, e.status, e.cancelReason, e.paymentMethod, shortId(e), nameOf(e.ownerId ?? e.owner_id), nameOf(e.runnerId ?? e.runner_id)]
         .filter(Boolean)
         .some((f) => String(f).toLowerCase().includes(q));
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [errands, tab, query, names]);
+  }, [errands, tab, query, names, categoryFilter, dateFrom, dateTo]);
 
   const pages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const current = Math.min(page, pages);
@@ -134,8 +148,27 @@ export default function AdminErrands({ token }: { token: string }) {
     setPage(1);
   };
 
+  async function cancelErrand(e: any) {
+    const id = String(e._id ?? e.id);
+    if (!window.confirm(`Cancel ${shortId(e)} — ${e.title}? This will immediately stop the errand.`)) return;
+    const reason = window.prompt("Enter a cancellation reason (at least 8 characters):")?.trim() ?? "";
+    if (reason.length < 8) {
+      setError("A reason of at least 8 characters is required. No changes were made.");
+      return;
+    }
+    setBusyId(id);
+    setError("");
+    const res = await api.cancelAdminErrand(token, id, reason);
+    setBusyId("");
+    if (!res.ok) {
+      setError(`${res.status} — ${res.error}`);
+      return;
+    }
+    setErrands((all) => all.map((row) => String(row._id ?? row.id) === id ? { ...row, status: "cancelled", cancelReason: reason } : row));
+  }
+
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6 rounded-[2rem] bg-gradient-to-br from-emerald-50/70 via-white to-green-100/60 p-3 sm:p-5">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap gap-3">
           {TABS.map((t) => (
@@ -144,14 +177,14 @@ export default function AdminErrands({ token }: { token: string }) {
               onClick={() => pickTab(t.key)}
               className={`flex items-center gap-2 rounded-2xl px-5 py-3 font-semibold transition ${
                 tab === t.key
-                  ? "bg-emerald-500 text-white"
-                  : "bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+                  ? "bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-lg shadow-emerald-500/20"
+                  : "bg-gradient-to-r from-white to-emerald-50 text-slate-600 shadow-sm hover:from-emerald-50 hover:to-green-100"
               }`}
             >
               {t.label}
               <span
                 className={`rounded-md px-2 py-0.5 text-xs font-bold ${
-                  tab === t.key ? "bg-white/20" : "bg-slate-100 text-slate-500"
+                  tab === t.key ? "bg-white/20" : "bg-gradient-to-r from-emerald-50 to-green-100 text-emerald-700"
                 }`}
               >
                 {counts[t.key] ?? 0}
@@ -170,49 +203,64 @@ export default function AdminErrands({ token }: { token: string }) {
                 setPage(1);
               }}
               placeholder="Search errands..."
-              className="w-64 rounded-2xl bg-white py-3 pl-12 pr-4 font-medium text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-64 rounded-2xl border border-emerald-100 bg-gradient-to-r from-white to-emerald-50 py-3 pl-12 pr-4 font-medium text-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
           <button
             onClick={load}
             title="Refresh"
-            className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-500 shadow-sm transition hover:bg-slate-50"
+            className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-400 to-green-600 text-white shadow-md shadow-emerald-500/20 transition hover:from-emerald-500 hover:to-green-700"
           >
             <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
           </button>
         </div>
       </div>
 
+      <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-emerald-100 bg-gradient-to-r from-white via-emerald-50/70 to-green-100/70 p-4 shadow-sm">
+        <label className="text-xs font-bold tracking-wide text-slate-500">CATEGORY
+          <select value={categoryFilter} onChange={(e) => { setCategoryFilter(e.target.value); setPage(1); }} className="mt-1 block rounded-xl border border-emerald-100 bg-gradient-to-r from-white to-emerald-50 px-3 py-2 text-sm font-medium text-slate-700">
+            <option value="all">All categories</option>{Array.from(new Set(errands.map((e) => e.category).filter(Boolean))).sort().map((category) => <option key={category} value={category}>{category}</option>)}
+          </select>
+        </label>
+        <label className="text-xs font-bold tracking-wide text-slate-500">POSTED FROM
+          <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} className="mt-1 block rounded-xl border border-emerald-100 bg-gradient-to-r from-white to-emerald-50 px-3 py-2 text-sm font-medium text-slate-700" />
+        </label>
+        <label className="text-xs font-bold tracking-wide text-slate-500">POSTED TO
+          <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} className="mt-1 block rounded-xl border border-emerald-100 bg-gradient-to-r from-white to-emerald-50 px-3 py-2 text-sm font-medium text-slate-700" />
+        </label>
+      </div>
+
       {error && (
-        <p className="rounded-2xl border border-rose-200 bg-rose-50 px-6 py-4 font-medium text-rose-600">
+        <p className="rounded-2xl border border-rose-200 bg-gradient-to-r from-rose-50 to-orange-50 px-6 py-4 font-medium text-rose-600">
           {error}
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-3xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-3xl border border-emerald-100 bg-gradient-to-b from-white via-white to-emerald-50/60 shadow-sm">
         <table className="w-full min-w-[900px] text-left">
           <thead>
-            <tr className="text-xs font-bold tracking-[0.12em] text-slate-400">
+            <tr className="bg-gradient-to-r from-emerald-50 via-green-50 to-white text-xs font-bold tracking-[0.12em] text-emerald-800/70">
               <th className="px-6 py-5">ERRAND</th>
               <th className="px-6 py-5">PEOPLE</th>
               <th className="px-6 py-5">CATEGORY</th>
-              <th className="px-6 py-5">AMOUNT</th>
+              <th className="px-6 py-5">PAYMENT & EVIDENCE</th>
               <th className="px-6 py-5">STATUS</th>
               <th className="px-6 py-5">REVIEW</th>
               <th className="px-6 py-5">DEADLINE</th>
+              <th className="px-6 py-5">ADMIN ACTION</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={7} className="px-6 py-14 text-center text-slate-400">
+                <td colSpan={8} className="px-6 py-14 text-center text-slate-400">
                   Loading errands...
                 </td>
               </tr>
             )}
             {!loading && list.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-6 py-14 text-center text-slate-400">
+                <td colSpan={8} className="px-6 py-14 text-center text-slate-400">
                   {errands.length === 0 ? "No errands yet." : "No errands match your filters."}
                 </td>
               </tr>
@@ -225,7 +273,7 @@ export default function AdminErrands({ token }: { token: string }) {
                 const review = reviews[id];
 
                 return (
-                  <tr key={id ?? i} className="border-t border-slate-100 align-top">
+                  <tr key={id ?? i} className="border-t border-emerald-100/70 align-top transition-colors hover:bg-gradient-to-r hover:from-emerald-50/70 hover:to-green-50/40">
                     <td className="px-6 py-5">
                       <p className="font-mono text-xs font-bold text-green-500">{shortId(e)}</p>
                       <p className="mt-1 font-bold text-slate-900">{e.title}</p>
@@ -244,11 +292,16 @@ export default function AdminErrands({ token }: { token: string }) {
                       </p>
                     </td>
                     <td className="px-6 py-5 whitespace-nowrap">
-                      <span className="rounded-lg bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                      <span className="rounded-lg bg-gradient-to-r from-emerald-50 to-green-100 px-3 py-1 text-xs font-semibold text-emerald-800">
                         {e.category}
                       </span>
                     </td>
-                    <td className="px-6 py-5 whitespace-nowrap font-bold text-green-500">₱{e.reward}</td>
+                    <td className="px-6 py-5 text-sm text-slate-600">
+                      <p className="font-bold text-slate-900">₱{e.reward} runner reward</p>
+                      <p className="mt-1">{formatPaymentMethod(e.paymentMethod, e.cod)}</p>
+                      {e.billAmount != null && <p className="mt-1">Item bill: ₱{Number(e.billAmount).toFixed(2)}</p>}
+                      {e.pickedUpAt && <p className={`mt-1 text-xs ${e.receiptExpiresAt && new Date(e.receiptExpiresAt) > new Date() ? "text-emerald-700" : "text-slate-400"}`}>{e.receiptExpiresAt && new Date(e.receiptExpiresAt) > new Date() ? "Receipt retained" : "Receipt expired or unavailable"}</p>}
+                    </td>
                     <td className="px-6 py-5 whitespace-nowrap">
                       <span
                         className={`rounded-lg px-3 py-1 text-xs font-bold ${
@@ -281,6 +334,10 @@ export default function AdminErrands({ token }: { token: string }) {
                     </td>
                     <td className="px-6 py-5 whitespace-nowrap text-sm text-slate-500">
                       {formatDate(e.deadline)}
+                      {e.cancelReason && <p className="mt-2 max-w-48 whitespace-normal text-xs text-rose-700">Reason: {e.cancelReason}</p>}
+                    </td>
+                    <td className="px-6 py-5">
+                      {["open", "in_progress", "picked_up", "review"].includes(e.status) ? <button onClick={() => cancelErrand(e)} disabled={busyId === String(id)} className="rounded-xl border border-rose-200 bg-gradient-to-r from-rose-50 to-orange-100 px-3 py-2 text-sm font-semibold text-rose-700 shadow-sm disabled:opacity-50">{busyId === String(id) ? "Cancelling..." : "Cancel"}</button> : <span className="text-slate-300">—</span>}
                     </td>
                   </tr>
                 );
@@ -299,7 +356,7 @@ export default function AdminErrands({ token }: { token: string }) {
           <button
             disabled={current === 1}
             onClick={() => setPage(current - 1)}
-            className="rounded-xl bg-white px-4 py-2.5 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40"
+            className="rounded-xl bg-gradient-to-r from-white to-emerald-50 px-4 py-2.5 font-semibold text-slate-600 shadow-sm transition hover:from-emerald-50 hover:to-green-100 disabled:opacity-40"
           >
             Previous
           </button>
@@ -309,8 +366,8 @@ export default function AdminErrands({ token }: { token: string }) {
               onClick={() => setPage(p)}
               className={`rounded-xl px-4 py-2.5 font-semibold transition ${
                 p === current
-                  ? "bg-orange-500 text-white"
-                  : "bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+                  ? "bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-md shadow-emerald-500/20"
+                  : "bg-gradient-to-r from-white to-emerald-50 text-slate-600 shadow-sm hover:from-emerald-50 hover:to-green-100"
               }`}
             >
               {p}
@@ -319,7 +376,7 @@ export default function AdminErrands({ token }: { token: string }) {
           <button
             disabled={current === pages}
             onClick={() => setPage(current + 1)}
-            className="rounded-xl bg-white px-4 py-2.5 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40"
+            className="rounded-xl bg-gradient-to-r from-white to-emerald-50 px-4 py-2.5 font-semibold text-slate-600 shadow-sm transition hover:from-emerald-50 hover:to-green-100 disabled:opacity-40"
           >
             Next
           </button>

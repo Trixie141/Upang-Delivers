@@ -54,12 +54,13 @@ export const authLimiter = rateLimit({
   max,
   standardHeaders: true,
   legacyHeaders: false,
-  store: mongoStore("rate_limits_auth"),
+  // Both limiters share one collection; key formats remain disjoint so auth
+  // and general API counters do not overwrite each other.
+  store: mongoStore("rate_limits_api"),
   keyGenerator: (req) => {
-  const key = `${req.ip}:${emailKey(req)}`;
-  console.log("RATE LIMIT KEY:", key, "| X-Forwarded-For:", req.headers["x-forwarded-for"]);
-  return key;
-},
+    const key = `auth|${req.ip}:${emailKey(req)}`;
+    return key;
+  },
   handler: (req, res) => {
     const retryIn = Math.ceil(windowMs / 1000);
     audit(emailKey(req), req.method, req.originalUrl, 429, `Rate limit hit (${max}/${retryIn}s)`, req.ip);

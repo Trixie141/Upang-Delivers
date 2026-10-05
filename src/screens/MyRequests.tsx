@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { Trash2, Clock, MapPin, AlertCircle, RefreshCw, UserCheck, Star } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Trash2, Clock, MapPin, AlertCircle, RefreshCw, UserCheck, Star, Navigation } from "lucide-react";
 import { api } from "../lib/api";
-import { formatDeadline } from "../lib/format";
+import { formatDeadline, formatPaymentMethod } from "../lib/format";
 
 interface ErrandRequest {
   _id: string;
@@ -12,10 +12,20 @@ interface ErrandRequest {
   dropoff: string;
   reward: number;
   deadline: string;
+  paymentMethod?: string;
+  cod?: boolean;
   contactPhone: string;
+  billAmount?: number | null;
   status: "open" | "in_progress" | "picked_up" | "review" | "done" | "cancelled";
   ownerId?: string | { _id: string; fullName: string };
   runnerId?: { _id: string; fullName: string } | string | null;
+  runnerLocation?: { lat: number; lng: number; updatedAt: string } | null;
+}
+
+interface PickupEvidence {
+  billAmount: number;
+  receiptImage: string | null;
+  pickedUpAt?: string | null;
 }
 
 interface ReviewState {
@@ -27,19 +37,77 @@ interface ReviewState {
   error: string;
 }
 
+const TRACKING_STATUSES = ["in_progress", "picked_up"];
+const POLL_INTERVAL_MS = 5000;
+const CAMPUS_MAP_WIDTH = 880;
+const CAMPUS_MAP_HEIGHT = 631;
+// Approximate GPS bounds for the campus drawing, centered on the mapped UPang
+// Dagupan campus (about 16.0467, 120.3417). The supplied schematic has no
+// georeferencing, so positions are approximate until surveyed control points
+// are available. These pixel limits exclude the route-map panel and inset.
+const CAMPUS_BOUNDS = { south: 16.0460, north: 16.0474, west: 120.3410, east: 120.3427 };
+const CAMPUS_IMAGE_FOOTPRINT = { left: 210, top: 28, right: 722, bottom: 613 };
+
+function LiveTrackingMap({ location }: { location: { lat: number; lng: number } | null }) {
+  const longitudeRatio = location
+    ? (location.lng - CAMPUS_BOUNDS.west) / (CAMPUS_BOUNDS.east - CAMPUS_BOUNDS.west)
+    : null;
+  const latitudeRatio = location
+    ? (CAMPUS_BOUNDS.north - location.lat) / (CAMPUS_BOUNDS.north - CAMPUS_BOUNDS.south)
+    : null;
+  const isOnCampusMap = longitudeRatio !== null && latitudeRatio !== null &&
+    longitudeRatio >= 0 && longitudeRatio <= 1 && latitudeRatio >= 0 && latitudeRatio <= 1;
+  const x = isOnCampusMap
+    ? ((CAMPUS_IMAGE_FOOTPRINT.left + longitudeRatio! * (CAMPUS_IMAGE_FOOTPRINT.right - CAMPUS_IMAGE_FOOTPRINT.left)) / CAMPUS_MAP_WIDTH) * 100
+    : null;
+  const y = isOnCampusMap
+    ? ((CAMPUS_IMAGE_FOOTPRINT.top + latitudeRatio! * (CAMPUS_IMAGE_FOOTPRINT.bottom - CAMPUS_IMAGE_FOOTPRINT.top)) / CAMPUS_MAP_HEIGHT) * 100
+    : null;
+
+  return (
+    <div className="relative flex h-72 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-100">
+      <div className="relative h-full max-w-full aspect-[880/631]">
+        <img
+          src="/campus-map.jpg"
+          alt="PHINMA University of Pangasinan Dagupan campus map"
+          className="absolute inset-0 h-full w-full object-fill"
+        />
+        {isOnCampusMap && (
+          <div
+            className="absolute z-10 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-sky-600 shadow-[0_1px_8px_#0f172a80] ring-4 ring-sky-500/25"
+            style={{ left: `${x}%`, top: `${y}%` }}
+            title="Runner's latest GPS position"
+          />
+        )}
+      </div>
+      {!location ? (
+        <div className="absolute inset-x-3 bottom-3 z-20 rounded-xl bg-white/95 px-3 py-2 text-center text-sm font-medium text-slate-600 shadow">
+          Waiting for the runner's first GPS update. The campus map will update automatically.
+        </div>
+      ) : !isOnCampusMap ? (
+        <div className="absolute inset-x-3 bottom-3 z-20 rounded-xl bg-amber-50/95 px-3 py-2 text-center text-sm font-medium text-amber-800 shadow">
+          The runner is outside campus. Their home or off-campus location is not shown on this school map.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function MyRequests({ token, userId }: { token: string; userId: string }) {
   const [requests, setRequests] = useState<ErrandRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [banner, setBanner] = useState("");
   const [reviews, setReviews] = useState<Record<string, ReviewState>>({});
+  const [pickupEvidence, setPickupEvidence] = useState<Record<string, PickupEvidence>>({});
+  const evidenceRequested = useRef(new Set<string>());
 
-  const fetchMyRequests = async () => {
-    setLoading(true);
+  const fetchMyRequests = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setBanner("");
     const apiClient = api as any;
     const res = await (apiClient.getMyErrands?.(token) ?? apiClient.getErrands(token));
-    setLoading(false);
+    if (showLoading) setLoading(false);
 
     if (!res.ok) {
       setBanner(`${res.status} — ${res.error || "Failed to load your posted requests."}`);
@@ -59,6 +127,43 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
   useEffect(() => {
     fetchMyRequests();
   }, [token, userId]);
+
+  // Fetch receipt photos separately so the list polling doesn't repeatedly
+  // download image data for every request card.
+  useEffect(() => {
+    const apiClient = api as any;
+    requests
+      .filter((request) => ["picked_up", "review", "done"].includes(request.status))
+      .forEach((request) => {
+        if (evidenceRequested.current.has(request._id)) return;
+        evidenceRequested.current.add(request._id);
+        apiClient.getPickupEvidence(token, request._id).then((res: any) => {
+          if (res.ok && typeof res.billAmount === "number") {
+            setPickupEvidence((prev) => ({
+              ...prev,
+              [request._id]: {
+                billAmount: Number(res.billAmount),
+                receiptImage: res.receiptImage || null,
+                pickedUpAt: res.pickedUpAt,
+              },
+            }));
+          } else if (res.status === 0 || res.status >= 500) {
+            evidenceRequested.current.delete(request._id);
+          }
+        }).catch(() => evidenceRequested.current.delete(request._id));
+      });
+  }, [requests, token]);
+
+  // While any request is in_progress/picked_up, re-fetch every 5s so the
+  // runner's live location marker moves without a manual refresh.
+  useEffect(() => {
+    const hasTracked = requests.some((r) => TRACKING_STATUSES.includes(r.status));
+    if (!hasTracked) return;
+
+    const id = setInterval(() => fetchMyRequests(false), POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requests, token, userId]);
 
   // For every completed errand, check whether a review already exists.
   useEffect(() => {
@@ -206,6 +311,8 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
                 ? req.runnerId.fullName
                 : null;
             const reviewState = reviews[req._id];
+            const isTracked = TRACKING_STATUSES.includes(req.status);
+            const hasRunner = Boolean(req.runnerId);
 
             return (
               <div key={req._id} className="rounded-3xl bg-white p-6 shadow-sm sm:p-8">
@@ -240,7 +347,50 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
                     <Clock className="h-4 w-4 text-slate-400" />
                     <span><strong>Contact Number:</strong> {req.contactPhone}</span>
                   </div>
+                  <div className="flex items-center gap-2 sm:col-span-2">
+                    <span className="text-slate-400">₱</span>
+                    <span><strong>Payment method:</strong> {formatPaymentMethod(req.paymentMethod, req.cod)}</span>
+                  </div>
                 </div>
+
+                {hasRunner && isTracked && (
+                  <div className="mt-6">
+                    <p className="mb-2 flex items-center gap-2 text-xs font-bold tracking-wider text-slate-400">
+                      <Navigation className="h-4 w-4 text-sky-500" />
+                      LIVE RUNNER LOCATION
+                    </p>
+                    <LiveTrackingMap
+                      location={req.runnerLocation
+                        ? { lat: req.runnerLocation.lat, lng: req.runnerLocation.lng }
+                        : null}
+                    />
+                    {req.runnerLocation?.updatedAt && (
+                      <p className="mt-2 text-right text-xs text-slate-400">
+                        Last GPS update: {new Date(req.runnerLocation.updatedAt).toLocaleTimeString()}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {pickupEvidence[req._id] && (
+                  <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 sm:p-5">
+                    <p className="text-sm font-extrabold text-slate-900">Pickup bill and receipt</p>
+                    <div className="mt-2 grid gap-1 text-sm text-slate-700 sm:grid-cols-2">
+                      <p>Bill to reimburse runner: <strong>₱{pickupEvidence[req._id].billAmount.toFixed(2)}</strong></p>
+                      <p>Runner reward: <strong>₱{Number(req.reward).toFixed(2)}</strong></p>
+                      <p className="sm:col-span-2 text-base">Total to pay runner: <strong className="text-emerald-800">₱{(pickupEvidence[req._id].billAmount + Number(req.reward)).toFixed(2)}</strong></p>
+                    </div>
+                    {pickupEvidence[req._id].receiptImage ? (
+                      <img
+                        src={pickupEvidence[req._id].receiptImage!}
+                        alt={`Bill or receipt for ${req.title}`}
+                        className="mt-3 max-h-80 max-w-full rounded-xl border border-slate-200 bg-white object-contain"
+                      />
+                    ) : (
+                      <p className="mt-3 text-xs text-slate-500">The receipt photo is no longer stored; the bill amount remains available.</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 pt-6">
                   <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">

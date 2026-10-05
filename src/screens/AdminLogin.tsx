@@ -9,9 +9,8 @@ export default function AdminLogin({
   onBack: () => void;
   onLogin: (token: string, name: string) => void;
 }) {
-  const [email, setEmail] = useState("admin@phinmaed.com");
-  const [password, setPassword] = useState("Admin#2026");
-  const [code, setCode] = useState("824193");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -31,7 +30,6 @@ export default function AdminLogin({
     setBusy(true);
     setError("");
     const clientErrors = api.validateLogin({ email, password });
-    if (!/^\d{6}$/.test(code)) clientErrors.code = "Enter the 6-digit campus OTP.";
     setFields(clientErrors);
     if (Object.keys(clientErrors).length) {
       setError("Fix the highlighted fields — the request was never sent.");
@@ -45,7 +43,13 @@ export default function AdminLogin({
       setError(`${res.status} — ${res.error}`);
       return;
     }
-    onLogin(res.data.token, res.data.user.name);
+    const token = res.data?.token;
+    const name = res.data?.user?.name;
+    if (!token || !name) {
+      setError("Admin login succeeded, but the session data is incomplete. Please try again.");
+      return;
+    }
+    onLogin(token, name);
   }
 
   return (
@@ -55,7 +59,7 @@ export default function AdminLogin({
           onClick={onBack}
           className="mb-6 flex items-center gap-2 text-slate-400 transition hover:text-white"
         >
-          <ArrowLeft className="h-5 w-5" /> Back to role selection
+          <ArrowLeft className="h-5 w-5" /> Back to home
         </button>
 
         <form
@@ -106,20 +110,6 @@ export default function AdminLogin({
           </div>
           {fields.password && <p className="mt-2 text-sm text-rose-400">{fields.password}</p>}
 
-          <label className="mt-6 block text-xs font-bold tracking-wider text-slate-400">
-            2FA CODE (6 DIGITS)
-          </label>
-          <input
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            inputMode="numeric"
-            maxLength={6}
-            className={`mt-2 w-full rounded-xl border bg-[#0B1524] px-5 py-4 tracking-[0.5em] text-white outline-none transition ${
-              fields.code ? "border-rose-500" : "border-white/10 focus:border-emerald-500"
-            }`}
-          />
-          {fields.code && <p className="mt-2 text-sm text-rose-400">{fields.code}</p>}
-
           {error && (
             <p className="mt-6 flex items-start gap-3 rounded-xl bg-rose-500/10 px-4 py-3 text-sm font-medium text-rose-300">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" /> {error}
@@ -145,8 +135,7 @@ export default function AdminLogin({
           </button>
 
           <p className="mt-6 text-center text-xs text-slate-500">
-            Demo: admin@phinmaed.com / Admin#2026 / any 6 digits. Student and runner accounts are
-            rejected here with 403.
+            Use an administrator account provisioned by your system administrator. Student and runner accounts cannot access this portal.
           </p>
         </form>
       </div>

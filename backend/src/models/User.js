@@ -43,9 +43,12 @@ const userSchema = new mongoose.Schema(
       enum: { values: ["student", "delivery", "admin"], message: "Unknown role." },
       index: true,
     },
-    status: { type: String, enum: ["active", "suspended"], default: "active" },
+    status: { type: String, enum: ["pending", "active", "suspended"], default: "active" },
+    // Existing accounts remain usable; registration explicitly starts unverified.
+    emailVerified: { type: Boolean, default: true },
     failedLogins: { type: Number, default: 0 },
     lastLoginAt: { type: Date, default: null },
+    available: { type: Boolean, default: true },
 
     /** Editable profile fields (saved via PATCH /api/auth/me) */
     phone: { type: String, trim: true, maxlength: 20, default: "" },
@@ -100,6 +103,9 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     spot: this.spot ?? "",
     role: this.role,
     status: this.status,
+    emailVerified: this.emailVerified !== false,
+    lastLoginAt: this.lastLoginAt ?? null,
+    available: this.available !== false,
   };
 };
 

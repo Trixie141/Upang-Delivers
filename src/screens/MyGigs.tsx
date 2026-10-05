@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { CheckCircle2, Clock, MapPin, AlertCircle, RefreshCw, ChevronRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, Clock, MapPin, AlertCircle, RefreshCw, ChevronRight, Navigation, Phone, ImagePlus } from "lucide-react";
 import { api } from "../lib/api";
-import { formatDeadline } from "../lib/format";
+import { formatDeadline, formatPaymentMethod } from "../lib/format";
 
 interface GigItem {
   _id: string;
@@ -12,8 +12,11 @@ interface GigItem {
   dropoff: string;
   reward: number;
   deadline: string;
+  paymentMethod?: string;
+  cod?: boolean;
+  contactPhone?: string;
   status: "in_progress" | "picked_up" | "review" | "done" | "cancelled";
-  ownerId?: { _id: string; fullName: string } | string;
+  ownerId?: { _id: string; fullName: string; phone?: string } | string;
   runnerId?: { _id: string; fullName: string } | string;
 }
 
@@ -22,18 +25,55 @@ interface GigReview {
   comment: string;
 }
 
+const LOCATION_ACTIVE_STATUSES = ["in_progress", "picked_up"];
+const LOCATION_SEND_INTERVAL_MS = 10_000;
+const MAX_RECEIPT_BYTES = 350_000;
+
+async function compressReceiptImage(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    for (const maxDimension of [1280, 960, 720]) {
+      const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Could not prepare the receipt photo.");
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+
+      for (const quality of [0.78, 0.62, 0.5]) {
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (!blob || blob.size > MAX_RECEIPT_BYTES) continue;
+        return await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result));
+          reader.onerror = () => reject(new Error("Could not read the receipt photo."));
+          reader.readAsDataURL(blob);
+        });
+      }
+    }
+  } finally {
+    bitmap.close();
+  }
+  throw new Error("Receipt photo is too large. Choose a clearer, closer photo.");
+}
+
 export default function MyGigs({ token, userId }: { token: string; userId: string }) {
   const [gigs, setGigs] = useState<GigItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [banner, setBanner] = useState("");
   const [reviews, setReviews] = useState<Record<string, GigReview | null>>({});
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const [pickupBillAmounts, setPickupBillAmounts] = useState<Record<string, string>>({});
+  const [pickupReceiptImages, setPickupReceiptImages] = useState<Record<string, string>>({});
 
-  const fetchMyGigs = async () => {
-    setLoading(true);
+  const fetchMyGigs = async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setBanner("");
     const res = await (api as any).getMyErrands?.(token) ?? (api as any).getErrands?.(token);
-    setLoading(false);
+    if (showLoading) setLoading(false);
 
     if (!res.ok) {
       setBanner(`${res.status} — ${res.error || "Failed to load your active gigs."}`);
@@ -65,6 +105,98 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gigs, token]);
 
+  // Share the runner's position with every active requester, not only the
+  // first gig returned by the API.
+  const activeGigIds = gigs
+    .filter((g) => LOCATION_ACTIVE_STATUSES.includes(g.status))
+    .map((g) => g._id);
+  const activeGigKey = activeGigIds.join(",");
+  const lastSentAt = useRef(0);
+  const watchIdRef = useRef<number | null>(null);
+
+  // Refresh active gigs so an automatic server-side deadline cancellation is
+  // reflected in the runner's page without requiring a manual refresh.
+  useEffect(() => {
+    if (!activeGigKey) return;
+    const refreshId = setInterval(() => fetchMyGigs(false), 10_000);
+    return () => clearInterval(refreshId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGigKey, token, userId]);
+
+  useEffect(() => {
+    if (!activeGigKey) {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      setSharingLocation(false);
+      return;
+    }
+
+    if (!("geolocation" in navigator)) {
+      setLocationError("This browser doesn't support location sharing.");
+      return;
+    }
+
+    setLocationError("");
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        const latitude = Number(pos.coords.latitude);
+        const longitude = Number(pos.coords.longitude);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          setSharingLocation(false);
+          setLocationError("The browser returned invalid GPS coordinates. Check location access and try again.");
+          return;
+        }
+        const now = Date.now();
+        if (now - lastSentAt.current < LOCATION_SEND_INTERVAL_MS) return;
+        lastSentAt.current = now;
+
+        const updateLocation = (api as any).updateMyLocation;
+        if (typeof updateLocation !== "function") {
+          setSharingLocation(false);
+          setLocationError("Location sharing is unavailable. Please refresh the page.");
+          return;
+        }
+
+        setLocationError("");
+        Promise.all(activeGigKey.split(",").map((id) =>
+          updateLocation(token, id, latitude, longitude),
+        )).then((results) => {
+          const failure = results.find((result) => !result?.ok);
+          setSharingLocation(!failure);
+          if (failure) {
+            const fieldDetails = failure.fields
+              ? Object.values(failure.fields).join(" ")
+              : "";
+            setLocationError(
+              [failure.error, fieldDetails].filter(Boolean).join(" — ") ||
+                "The server couldn't save your location. Please refresh and try again.",
+            );
+          } else {
+            setLocationError("");
+          }
+        }).catch(() => {
+          setSharingLocation(false);
+          setLocationError("The server couldn't save your location. Please check your connection.");
+        });
+      },
+      (err) => {
+        setSharingLocation(false);
+        setLocationError(
+          err.code === err.PERMISSION_DENIED
+            ? "Location permission denied — the requester won't see live tracking."
+            : "Couldn't get your location.",
+        );
+      },
+      { enableHighAccuracy: true, maximumAge: 5000 },
+    );
+
+    return () => {
+      if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current);
+    };
+  }, [activeGigKey, token]);
+
   const updateStatus = async (id: string, nextStatus: GigItem["status"]) => {
     setUpdatingId(id);
     setBanner("");
@@ -91,6 +223,45 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
     );
   };
 
+  const handleReceiptSelection = async (id: string, file?: File) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setBanner("Choose an image file for the bill or receipt.");
+      return;
+    }
+    setBanner("");
+    try {
+      const image = await compressReceiptImage(file);
+      setPickupReceiptImages((prev) => ({ ...prev, [id]: image }));
+    } catch (error) {
+      setBanner(error instanceof Error ? error.message : "Could not prepare the receipt photo.");
+    }
+  };
+
+  const confirmPickup = async (id: string) => {
+    const amountText = pickupBillAmounts[id];
+    const billAmount = Number(amountText);
+    const receiptImage = pickupReceiptImages[id];
+    if (!amountText?.trim() || !Number.isFinite(billAmount) || billAmount <= 0 || billAmount > 100000) {
+      setBanner("Enter a bill amount greater than ₱0.");
+      return;
+    }
+    if (!receiptImage) {
+      setBanner("Add a photo of the bill or receipt before confirming pickup.");
+      return;
+    }
+
+    setUpdatingId(id);
+    setBanner("");
+    const res = await (api as any).submitPickupEvidence(token, id, billAmount, receiptImage);
+    setUpdatingId(null);
+    if (!res.ok) {
+      setBanner(`${res.status} — ${res.error || "Could not confirm pickup."}`);
+      return;
+    }
+    setGigs((prev) => prev.map((gig) => (gig._id === id ? { ...gig, status: "picked_up" } : gig)));
+  };
+
   const statusBadges = {
     in_progress: { label: "In Progress", color: "bg-amber-50 text-amber-700 border-amber-200" },
     picked_up: { label: "Picked Up", color: "bg-blue-50 text-blue-700 border-blue-200" },
@@ -114,6 +285,21 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
         </button>
       </div>
 
+      {activeGigIds.length > 0 && (
+        <div
+          className={`flex items-center gap-3 rounded-2xl p-4 text-sm font-medium ${
+            locationError ? "bg-amber-50 text-amber-700" : "bg-sky-50 text-sky-700"
+          }`}
+        >
+          <Navigation className={`h-5 w-5 shrink-0 ${sharingLocation ? "animate-pulse" : ""}`} />
+          <p>
+            {locationError || (sharingLocation
+              ? "Sharing your live location with the requester."
+              : "Waiting for GPS to start sharing your location...")}
+          </p>
+        </div>
+      )}
+
       {banner && (
         <div className="flex items-center gap-3 rounded-2xl bg-rose-50 p-4 font-medium text-rose-600">
           <AlertCircle className="h-5 w-5 shrink-0" />
@@ -133,6 +319,9 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
             const badge = statusBadges[gig.status] || statusBadges.in_progress;
             const requesterName =
               typeof gig.ownerId === "object" && gig.ownerId ? gig.ownerId.fullName : "Student";
+            const requesterPhone =
+              (typeof gig.ownerId === "object" && gig.ownerId ? gig.ownerId.phone : "") || "";
+            const contactPhone = gig.contactPhone || requesterPhone;
 
             return (
               <div key={gig._id} className="rounded-3xl bg-white p-6 shadow-sm sm:p-8">
@@ -163,6 +352,23 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
                     <Clock className="h-4 w-4 text-sky-500" />
                     <span><strong>Deadline:</strong> {formatDeadline(gig.deadline)}</span>
                   </div>
+                  <div className="flex items-center gap-2 sm:col-span-2">
+                    <span className="text-slate-400">₱</span>
+                    <span><strong>Client payment method:</strong> {formatPaymentMethod(gig.paymentMethod, gig.cod)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 sm:col-span-2">
+                    <Phone className="h-4 w-4 text-emerald-600" />
+                    {contactPhone ? (
+                      <span>
+                        <strong>Client contact:</strong>{" "}
+                        <a className="font-semibold text-sky-700 hover:underline" href={`tel:${contactPhone}`}>
+                          {contactPhone}
+                        </a>
+                      </span>
+                    ) : (
+                      <span><strong>Client contact:</strong> Not provided</span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Status Action Controls */}
@@ -173,13 +379,50 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
 
                   <div className="flex gap-3">
                     {gig.status === "in_progress" && (
-                      <button
-                        disabled={updatingId === gig._id}
-                        onClick={() => updateStatus(gig._id, "picked_up")}
-                        className="flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 font-bold text-white shadow-md transition hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        Mark as Picked Up <ChevronRight className="h-4 w-4" />
-                      </button>
+                      <div className="w-full space-y-3 rounded-2xl bg-slate-50 p-4 sm:max-w-xl">
+                        <div>
+                          <p className="font-bold text-slate-800">Pickup bill and evidence</p>
+                          <p className="text-xs text-slate-500">Enter the bill amount and attach a clear receipt photo before confirming pickup.</p>
+                        </div>
+                        <label className="block text-sm font-semibold text-slate-600">
+                          Bill amount (₱)
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={pickupBillAmounts[gig._id] ?? ""}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              if (/^\d{0,6}(?:\.\d{0,2})?$/.test(value)) {
+                                setPickupBillAmounts((prev) => ({ ...prev, [gig._id]: value }));
+                              }
+                            }}
+                            placeholder="0.00"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900"
+                          />
+                        </label>
+                        <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-600 hover:bg-slate-50">
+                          <ImagePlus className="h-4 w-4" />
+                          {pickupReceiptImages[gig._id] ? "Change bill or receipt photo" : "Add bill or receipt photo"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            className="sr-only"
+                            onChange={(event) => handleReceiptSelection(gig._id, event.target.files?.[0])}
+                          />
+                        </label>
+                        {pickupReceiptImages[gig._id] && (
+                          <img src={pickupReceiptImages[gig._id]} alt="Bill or receipt preview" className="max-h-48 rounded-xl border border-slate-200 object-contain" />
+                        )}
+                        <button
+                          disabled={updatingId === gig._id || !pickupBillAmounts[gig._id]?.trim() || !pickupReceiptImages[gig._id]}
+                          onClick={() => confirmPickup(gig._id)}
+                          className="flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-3 font-bold text-white shadow-md transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {updatingId === gig._id ? "Saving evidence..." : "Confirm Pickup"}
+                          <ChevronRight className="h-4 w-4" />
+                        </button>
+                      </div>
                     )}
 
                     {gig.status === "picked_up" && (

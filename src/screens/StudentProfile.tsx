@@ -90,6 +90,7 @@ export default function StudentProfile({
     currentPassword: "",
   });
   const [savedEmail, setSavedEmail] = useState(""); // email currently stored on the server
+  const [emailVerified, setEmailVerified] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -104,6 +105,7 @@ export default function StudentProfile({
         const u = meRes.user ?? meRes.data ?? {};
         const email = u.email ?? "";
         setSavedEmail(email);
+        setEmailVerified(u.emailVerified === true);
         const loadedName = u.name ?? u.fullName;
         setForm((f) => ({
           ...f,
@@ -380,7 +382,7 @@ export default function StudentProfile({
           </h3>
           <div className="mt-6 grid gap-5 md:grid-cols-3">
             {[
-              { icon: BadgeCheck, title: "Campus email", sub: "Registered with @phinmaed.com", ok: true },
+              { icon: BadgeCheck, title: "Campus email", sub: emailVerified ? "Email address verified" : "Email address not verified", ok: emailVerified },
               { icon: ShieldCheck, title: "Campus Conduct Pledge", sub: "Accepted at sign-up", ok: true },
               { icon: IdCard, title: "Government ID", sub: "Not required yet", ok: false },
             ].map((v) => {

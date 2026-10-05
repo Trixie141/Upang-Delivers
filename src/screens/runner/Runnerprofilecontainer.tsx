@@ -13,7 +13,6 @@ const EMPTY_STATS: RunnerProfileStats = {
 
 // Same rules as sign-up (backend validate.js), checked before sending
 const NAME_RE = /^[\p{L}.'-]+(?:\s+[\p{L}.'-]+)+$/u;
-const ID_RE = /^\d{2}-\d{4}-\d{3,6}$/;
 const EMAIL_RE = /^[^\s@]+@phinmaed\.com$/i;
 
 type FormState = {
@@ -98,6 +97,8 @@ export default function RunnerProfileContainer({
 }) {
   const [stats, setStats] = useState<RunnerProfileStats>(EMPTY_STATS);
   const [displayName, setDisplayName] = useState(name);
+  const [available, setAvailable] = useState(true);
+  const [reviewSummary, setReviewSummary] = useState<{ average: number | null; count: number; reviews: any[] }>({ average: null, count: 0, reviews: [] });
 
   const [form, setForm] = useState<FormState>({
     fullName: name,
@@ -114,7 +115,7 @@ export default function RunnerProfileContainer({
   useEffect(() => {
     let alive = true;
 
-    Promise.all([api.me(token), api.getMyErrands(token)]).then(([meRes, errRes]) => {
+    Promise.all([api.me(token), api.getMyErrands(token), api.getMyReviews(token)]).then(([meRes, errRes, reviewRes]) => {
       if (!alive) return;
 
       if (meRes.ok) {
@@ -130,6 +131,7 @@ export default function RunnerProfileContainer({
           email,
           phone: u.phone ?? "",
         }));
+        setAvailable(u.available !== false);
         // Keeps the navbar (and localStorage cache) in sync with the database
         // on every load, not just after a save — covers edits made before this
         // wiring existed, or made from another device/session.
@@ -139,6 +141,13 @@ export default function RunnerProfileContainer({
       if (errRes.ok) {
         const list = errRes.errands ?? errRes.data ?? [];
         setStats(buildStats(Array.isArray(list) ? list : [], userId));
+      }
+      if (reviewRes.ok) {
+        setReviewSummary({
+          average: typeof reviewRes.average === "number" ? reviewRes.average : null,
+          count: Number(reviewRes.count) || 0,
+          reviews: Array.isArray(reviewRes.reviews) ? reviewRes.reviews : [],
+        });
       }
     });
 
@@ -176,6 +185,7 @@ export default function RunnerProfileContainer({
       email: form.email.trim().toLowerCase(),
       phone: form.phone.trim(),
       spot: "", // runners don't use a default meeting spot
+      available,
       ...(emailChanged ? { currentPassword: form.currentPassword } : {}),
     });
     setSaving(false);
@@ -210,12 +220,26 @@ export default function RunnerProfileContainer({
 
   return (
     <div className="mx-auto max-w-6xl space-y-7 pb-4">
-      <RunnerProfile name={displayName} stats={stats} />
+      <RunnerProfile name={displayName} stats={stats} available={available} rating={reviewSummary.average} reviewCount={reviewSummary.count} reviews={reviewSummary.reviews} />
 
       <div className="rounded-3xl bg-white p-7 shadow-sm sm:p-9">
         <h3 className="flex items-center gap-3 text-2xl font-bold text-slate-900">
           <UserCog className="h-7 w-7 text-slate-800" /> Account Settings
         </h3>
+
+        <label className="mt-6 flex cursor-pointer items-center justify-between gap-4 rounded-2xl bg-emerald-50/70 p-5">
+          <span>
+            <span className="block font-bold text-slate-900">Available for new gigs</span>
+            <span className="mt-1 block text-sm text-slate-500">Turn this off when you cannot accept errands.</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={available}
+            onChange={(event) => setAvailable(event.target.checked)}
+            aria-label="Available for new gigs"
+            className="h-6 w-6 accent-emerald-600"
+          />
+        </label>
 
         {msg && (
           <p

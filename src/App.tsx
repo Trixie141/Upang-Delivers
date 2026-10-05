@@ -12,7 +12,6 @@ import AdminLogin from "./screens/AdminLogin";
 import RunnerNavbar, { type RunnerTab } from "./components/Runnernavbar";
 import BrowseErrands from "./screens/runner/BrowseErrands";
 import RunnerProfileContainer from "./screens/runner/Runnerprofilecontainer";
-import AdminDashboard from "./screens/admin/AdminDashboard";
 import AdminNavbar, { AdminTab } from "./components/Adminnavbar";
 import StudentProfile from "./screens/StudentProfile";
 import AdminErrands from "./screens/admin/AdminErrands";
@@ -45,7 +44,9 @@ export default function App() {
   const [runnerTab, setRunnerTab] = useState<RunnerTab>("browse");
 
   // Starts on the landing page instead of the login form
-  const [authScreen, setAuthScreen] = useState<AuthScreen>("landing");
+  const [authScreen, setAuthScreen] = useState<AuthScreen>(() =>
+    window.location.pathname === "/staff-access" ? "admin" : "landing",
+  );
   const [selectedRole, setSelectedRole] = useState<AppRole>("student");
 
   useEffect(() => {
@@ -83,9 +84,11 @@ export default function App() {
     setAuthScreen("landing");
     localStorage.removeItem("token");
     localStorage.removeItem("auth_user");
+    window.history.replaceState(null, "", "/");
   };
 
-  // Not logged in: landing -> role select -> login / sign up / admin login
+  // Not logged in: landing -> role select -> login / sign up.
+  // Staff reach the admin login directly at /staff-access.
   if (!token || !user) {
     if (authScreen === "landing") {
       return <Landing onGetStarted={() => setAuthScreen("role")} />;
@@ -99,7 +102,6 @@ export default function App() {
             setSelectedRole(role);
             setAuthScreen("login");
           }}
-          onAdmin={() => setAuthScreen("admin")}
         />
       );
     }
@@ -107,7 +109,10 @@ export default function App() {
     if (authScreen === "admin") {
       return (
         <AdminLogin
-          onBack={() => setAuthScreen("role")}
+          onBack={() => {
+            window.history.replaceState(null, "", "/");
+            setAuthScreen("landing");
+          }}
           onLogin={(adminToken, name) => {
             setToken(adminToken);
             setUser({ id: "admin", fullName: name, role: "admin" });
@@ -137,7 +142,7 @@ export default function App() {
 
   if (user.role === "admin") {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-100 text-slate-900">
         <AdminNavbar
           activeTab={adminTab}
           setActiveTab={setAdminTab}
@@ -148,7 +153,7 @@ export default function App() {
           {adminTab === "dashboard" && <AdminDashboardContainer token={token} />}
 {adminTab === "errands" && <AdminErrands token={token} />}
 {adminTab === "users" && <AdminUsers token={token} />}
-{adminTab === "profile" && <AdminProfile token={token} name={user.fullName} />}
+{adminTab === "profile" && <AdminProfile token={token} userId={user.id} name={user.fullName} />}
 {adminTab !== "dashboard" &&
   adminTab !== "errands" &&
   adminTab !== "users" &&
@@ -164,11 +169,12 @@ export default function App() {
 
   if (user.role === "delivery") {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-900">
+      <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-100 text-slate-900">
         <RunnerNavbar
           activeTab={runnerTab}
           setActiveTab={setRunnerTab}
           name={user.fullName}
+          token={token}
           onLogout={handleLogout}
         />
         <main className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8">
@@ -192,11 +198,12 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-green-100 text-slate-900">
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         user={user}
+        token={token}
         onLogout={handleLogout}
       />
 

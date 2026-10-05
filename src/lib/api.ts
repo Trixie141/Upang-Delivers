@@ -8,6 +8,7 @@ interface ApiResponse<T = any> {
   ok: boolean;
   status: number;
   error?: string;
+  code?: string;
   fields?: Record<string, string>;
   data?: T;
   [key: string]: any;
@@ -16,6 +17,7 @@ interface ApiResponse<T = any> {
 type LoginPayload = {
   email: string;
   password: string;
+  requestedRole?: "student" | "delivery";
 };
 
 type ApiRole = "student" | "delivery";
@@ -27,8 +29,12 @@ type LoginUser = {
 };
 
 type AuthPayload = {
-  token: string;
-  user: LoginUser;
+  token?: string;
+  user?: LoginUser;
+  verificationRequired?: boolean;
+  message?: string;
+  emailSent?: boolean;
+  email?: string;
 };
 
 /**
@@ -85,10 +91,29 @@ export const api = {
     agree: boolean;
   }) => authRequest("/auth/register", payload),
 
+  completeRegistration: (payload: {
+    fullName: string;
+    studentId: string;
+    email: string;
+    password: string;
+    confirm: string;
+    role: ApiRole;
+    agree: boolean;
+    code: string;
+  }) => authRequest("/auth/complete-registration", payload),
+  verifyEmail: (email: string, code: string) => authRequest("/auth/verify-email", { email, code }),
+  resendVerification: (email: string) => request("/auth/resend-verification", "POST", null, { email }),
+
+  requestPasswordReset: (email: string) => request("/auth/forgot-password", "POST", null, { email }),
+  resetPassword: (email: string, code: string, password: string) =>
+    request("/auth/reset-password", "POST", null, { email, code, password }),
+  changePassword: (token: string, currentPassword: string, newPassword: string, confirm: string) =>
+    request("/auth/change-password", "POST", token, { currentPassword, newPassword, confirm }),
+
   /** GET /api/auth/me */
   me: (token: string) => request("/auth/me", "GET", token),
   /** PATCH /api/auth/me */
-  updateProfile: (token: string, data: { phone: string; spot: string }) =>
+  updateProfile: (token: string, data: { phone: string; spot: string; fullName?: string; studentId?: string; email?: string; currentPassword?: string; available?: boolean }) =>
      request("/auth/me", "PATCH", token, data),
   /** Client-side sanity check before spending a rate-limited request.
    *  Deliberately has no password length rule: the server never reveals its
@@ -110,9 +135,9 @@ export const api = {
   },
 
   leaveReview: (token: string, errandId: string, body: { rating: number; comment: string }) =>
-  request(`/errands/${errandId}/review`, "POST", token, body),
-getReview: (token: string, errandId: string) =>
-  request(`/errands/${errandId}/review`, "GET", token),
+    request(`/errands/${errandId}/review`, "POST", token, body),
+  getReview: (token: string, errandId: string) =>
+    request(`/errands/${errandId}/review`, "GET", token),
 
   /** Client-side mirror of backend/src/middleware/validate.js errandSchema. */
   validateErrand: (payload: {
@@ -123,6 +148,7 @@ getReview: (token: string, errandId: string) =>
     reward: number | string;
     category: string;
     deadline: string;
+    paymentMethod: string;
   }) => {
     const errors: Record<string, string> = {};
     const MARKUP = "Must not contain the characters < or >.";
@@ -153,8 +179,11 @@ getReview: (token: string, errandId: string) =>
 
     const reward = Number(payload.reward);
     if (!Number.isInteger(reward)) errors.reward = "Reward must be a whole number.";
-    else if (reward < 10) errors.reward = "Minimum reward is \u20B110.";
+    else if (reward < 20) errors.reward = "Minimum reward is \u20B120.";
     else if (reward > 1000) errors.reward = "Maximum reward is \u20B11000.";
+
+    if (!(["cash_on_delivery", "e_wallet", "bank_transfer"] as string[]).includes(payload.paymentMethod))
+      errors.paymentMethod = "Choose a valid payment method.";
 
     const deadline = payload.deadline.trim();
     if (deadline.length < 3) errors.deadline = "Deadline is required.";
@@ -171,6 +200,10 @@ getReview: (token: string, errandId: string) =>
 
   /** GET /api/errands/mine - errands owned by or assigned to the caller */
   getMyErrands: (token: string) => request("/errands/mine", "GET", token),
+  getMyReviews: (token: string) => request("/errands/reviews/me", "GET", token),
+  getNotifications: (token: string) => request("/notifications", "GET", token),
+  markNotificationRead: (token: string, id: string) => request(`/notifications/${id}/read`, "PATCH", token, {}),
+  markAllNotificationsRead: (token: string) => request("/notifications/read-all", "PATCH", token, {}),
 
   /** GET /api/errands/:id - one errand (owner or assigned runner only) */
   getErrandById: (token: string, id: string) => request(`/errands/${id}`, "GET", token),
@@ -190,6 +223,17 @@ getReview: (token: string, errandId: string) =>
     status: "in_progress" | "picked_up" | "review" | "done" | "cancelled",
   ) => request(`/errands/${id}/status`, "PATCH", token, { status }),
 
+  /** POST /api/errands/:id/pickup - runner submits bill amount and receipt photo. */
+  submitPickupEvidence: (token: string, id: string, billAmount: number, receiptImage: string) =>
+    request(`/errands/${id}/pickup`, "POST", token, { billAmount, receiptImage }),
+  /** GET /api/errands/:id/pickup-evidence - owner or assigned runner only. */
+  getPickupEvidence: (token: string, id: string) =>
+    request(`/errands/${id}/pickup-evidence`, "GET", token),
+
+  /** PATCH /api/errands/:id/location - runner reports live GPS while a gig is active */
+  updateMyLocation: (token: string, id: string, lat: number, lng: number) =>
+    request(`/errands/${id}/location`, "PATCH", token, { lat, lng }),
+
   /** DELETE /api/errands/:id - the owner deletes an errand */
   deleteErrand: (token: string, id: string) => request(`/errands/${id}`, "DELETE", token),
 
@@ -203,17 +247,15 @@ getReview: (token: string, errandId: string) =>
 
   /** GET /api/admin/errands */
   getAdminErrands: (token: string) => request("/admin/errands", "GET", token),
-
-  /** GET /api/admin/audit-log */
-  getAuditLog: (token: string, limit = 50) =>
-    request(`/admin/audit-log?limit=${limit}`, "GET", token),
+  cancelAdminErrand: (token: string, id: string, reason: string) =>
+    request(`/admin/errands/${id}/cancel`, "PATCH", token, { reason }),
 
   /** GET /api/admin/stats */
   getStats: (token: string) => request("/admin/stats", "GET", token),
 
   /** PATCH /api/admin/users/:id/status */
-  setUserStatus: (token: string, id: string, status: "active" | "suspended") =>
-    request(`/admin/users/${id}/status`, "PATCH", token, { status }),
+  setUserStatus: (token: string, id: string, status: "active" | "suspended", reason = "") =>
+    request(`/admin/users/${id}/status`, "PATCH", token, { status, reason }),
 };
 
 async function request<T = any>(
@@ -254,6 +296,7 @@ async function request<T = any>(
             ? "The server is unavailable. Please try again later."
             : "An unexpected error occurred."),
         fields: data.fields,
+        code: data.code,
       };
     }
 
@@ -277,6 +320,6 @@ async function authRequest(
   payload: Record<string, any>,
 ): Promise<ApiResponse<AuthPayload>> {
   const res = await request<any>(endpoint, "POST", null, payload);
-  if (!res.ok) return { ok: false, status: res.status, error: res.error, fields: res.fields };
-  return { ok: true, status: res.status, data: { token: res.token, user: res.user } };
+  if (!res.ok) return { ok: false, status: res.status, error: res.error, fields: res.fields, code: res.code };
+  return { ok: true, status: res.status, data: res as unknown as AuthPayload };
 }

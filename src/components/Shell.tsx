@@ -1,6 +1,7 @@
 import { useState, type ComponentType, type ReactNode } from "react";
 import { Bell, LogOut, Menu, X } from "lucide-react";
 import { useStore } from "../store";
+import BrandLogo from "./BrandLogo";
 
 export type Page = "gigs" | "requests" | "track" | "post" | "profile";
 
@@ -35,11 +36,8 @@ export default function Shell({
   const sidebar = (
     <div className="flex h-full w-[280px] flex-col bg-[#0B1524] px-5 py-6">
       <div className="flex items-center gap-3 px-2">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500 text-2xl font-extrabold text-white">
-          U
-        </div>
         <div>
-          <p className="text-lg font-bold text-white">Upang Delivers</p>
+          <BrandLogo size="lg" inverse />
           <p className="text-[11px] font-semibold tracking-[0.18em] text-slate-400">
             PHINMA UPANG
           </p>

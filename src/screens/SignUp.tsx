@@ -7,8 +7,10 @@ type SignUpRole = "student" | "delivery";
 /** What the server returns for a signed-in user (see toSafeJSON in the backend User model). */
 type SessionUser = { id: string; name: string; role: string };
 
-const NAME_RE = /^[\p{L}.'-]+(?:\s+[\p{L}.'-]+)+$/u;
+const NAME_RE = /^[\p{Lu}][\p{L}.'-]*(?:\s+[\p{Lu}][\p{L}.'-]*)+$/u;
 const STUDENT_ID_RE = /^\d{2}-\d{4}-\d{3,6}$/;
+const titleCaseName = (value: string) =>
+  value.replace(/(^|[\s'-])(\p{L})/gu, (_match, separator: string, letter: string) => separator + letter.toLocaleUpperCase());
 
 type Form = {
   fullName: string;
@@ -26,7 +28,7 @@ function validateSignUp(v: Form): Record<string, string> {
 
   const name = v.fullName.trim();
   if (name.length < 4 || name.length > 60 || !NAME_RE.test(name))
-    f.fullName = "Enter your first and last name (letters only).";
+    f.fullName = "Use letters only and capitalize each name, like Juan Dela Cruz.";
 
   const email = v.email.trim().toLowerCase();
   if (!/^[^\s@]+@phinmaed\.com$/.test(email) || email.length > 80)
@@ -78,18 +80,23 @@ export default function SignUp({
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [agree, setAgree] = useState(false);
-  const [role, setRole] = useState<SignUpRole>("student");
+  const role: SignUpRole = "student";
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
+  const [pendingVerification, setPendingVerification] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
+  const [notice, setNotice] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    const normalizedName = titleCaseName(fullName.trim());
+    setFullName(normalizedName);
 
     // 1. Catch obvious mistakes locally so no request is spent on them.
-    const clientErrors = validateSignUp({ fullName, studentId, email, password, confirm, agree });
+    const clientErrors = validateSignUp({ fullName: normalizedName, studentId, email, password, confirm, agree });
     setFields(clientErrors);
     if (Object.keys(clientErrors).length) {
       setError("Fix the highlighted fields - the request was never sent.");
@@ -99,7 +106,7 @@ export default function SignUp({
     // 2. The server validates everything again and stays the authority.
     setBusy(true);
     const res = await api.register({
-      fullName: fullName.trim(),
+      fullName: normalizedName,
       studentId: studentId.trim(),
       email: email.trim().toLowerCase(),
       password,
@@ -116,6 +123,14 @@ export default function SignUp({
     }
 
     // 3. The App needs the whole user (id, name, role), not just the name.
+    if (res.data?.verificationRequired) {
+      setPendingVerification(true);
+      setNotice(res.data.emailSent
+        ? `We sent a 6-digit code to ${res.data.email}. It expires in 10 minutes. Your Atlas user record will be created after you verify the code.`
+        : "No user record has been created yet. Email delivery failed; configure SMTP in backend/.env, then request a new code.");
+      return;
+    }
+
     const token = res.data?.token;
     const user = res.data?.user;
 
@@ -127,6 +142,71 @@ export default function SignUp({
     localStorage.setItem("token", token);
     onSignUpSuccess(token, { id: user.id, name: user.name, role: user.role });
   };
+
+  async function verifyEmail(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    const normalizedEmail = email.trim().toLowerCase();
+    const res = await api.completeRegistration({
+      fullName: titleCaseName(fullName.trim()),
+      studentId: studentId.trim(),
+      email: normalizedEmail,
+      password,
+      confirm,
+      role,
+      agree,
+      code: verificationCode,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(`${res.status} — ${res.error || "Could not verify this email."}`);
+      return;
+    }
+    const token = res.data?.token;
+    const user = res.data?.user;
+    if (!token || !user?.id || !user?.name || !user?.role) {
+      setError("Email verified, but the session could not be started. Please log in.");
+      return;
+    }
+    localStorage.setItem("token", token);
+    onSignUpSuccess(token, { id: user.id, name: user.name, role: user.role });
+  }
+
+  async function resendCode() {
+    setBusy(true);
+    setError("");
+    const res = await api.resendVerification(email.trim().toLowerCase());
+    setBusy(false);
+    if (!res.ok) {
+      setError(`${res.status} — ${res.error || "Could not send a new code."}`);
+      return;
+    }
+    setNotice(res.message || "A new verification code was sent.");
+  }
+
+  if (pendingVerification) {
+    return (
+      <div className="min-h-screen bg-[#FDEFE6] p-4 sm:p-8 lg:p-10">
+        <div className="mx-auto max-w-xl rounded-[32px] bg-white p-8 shadow-2xl sm:p-12">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-600">
+            <ShieldAlert className="h-5 w-5" />
+          </div>
+          <h1 className="mt-7 text-3xl font-extrabold text-slate-900">Verify your email</h1>
+          <p className="mt-3 text-slate-600">Enter the 6-digit code sent to <strong>{email}</strong>.</p>
+          {notice && <p className="mt-5 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</p>}
+          <form onSubmit={verifyEmail} className="mt-5">
+            <label className="block text-xs font-bold tracking-wider text-slate-500">EMAIL VERIFICATION CODE</label>
+            <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" className="mt-2 w-full rounded-xl border border-slate-200 px-5 py-4 tracking-[0.3em] text-slate-800 outline-none focus:border-emerald-500" />
+            {error && <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">{error}</p>}
+            <button type="submit" disabled={busy || verificationCode.length !== 6} className="mt-5 w-full rounded-2xl bg-emerald-500 py-4 font-bold text-white disabled:opacity-60">{busy ? "Verifying..." : "Verify Email and Create Account"}</button>
+          </form>
+          <button type="button" disabled={busy} onClick={resendCode} className="mt-5 w-full text-sm font-bold text-emerald-700 hover:underline disabled:opacity-50">Send a new code</button>
+          <button type="button" onClick={onBackToLogin} className="mt-5 w-full text-sm text-slate-500 hover:underline">Back to Log In</button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#FDEFE6] p-4 sm:p-8 lg:p-10">
@@ -153,7 +233,11 @@ export default function SignUp({
           <input
             type="text"
             value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
+            onChange={(e) => setFullName(e.target.value.replace(/[^\p{L}\s.'-]/gu, ""))}
+            onBlur={() => setFullName((name) => titleCaseName(name))}
+            autoCapitalize="words"
+            autoComplete="name"
+            maxLength={60}
             placeholder="Juan Dela Cruz"
             className={inputClass(fields.fullName)}
           />
@@ -165,11 +249,15 @@ export default function SignUp({
           <input
             type="text"
             value={studentId}
-            onChange={(e) => setStudentId(e.target.value)}
+            onChange={(e) => setStudentId(e.target.value.replace(/[^\d-]/g, "").slice(0, 14))}
+            inputMode="text"
+            autoComplete="off"
+            maxLength={14}
             placeholder="04-2021-00456"
             className={inputClass(fields.studentId)}
           />
           <FieldError msg={fields.studentId} />
+          <p className="mt-1.5 text-xs text-slate-400">Use numbers and hyphens only, like 04-2021-00456.</p>
 
           <label className="mt-4 block text-xs font-bold tracking-wider text-slate-500">
             PHINMA EMAIL

@@ -10,10 +10,14 @@ import { startExpiredErrandSweep } from "./jobs/expiredErrandSweep.js";
 
 import { connectDB } from "./config/db.js";
 import { audit } from "./models/AuditLog.js";
+import { RunnerLocation } from "./models/RunnerLocation.js";
+import { EmailCode } from "./models/EmailCode.js";
 import authRoutes from "./routes/auth.js";
 import errandRoutes from "./routes/errands.js";
 import adminRoutes from "./routes/admin.js";
 import transactionRoutes from "./routes/transaction.js";
+import notificationRoutes from "./routes/notifications.js";
+import { Notification } from "./models/Notification.js";
 import { apiLimiter, limits } from "./middleware/rateLimit.js";
 
 const app = express();
@@ -33,7 +37,8 @@ app.use(
     exposedHeaders: ["RateLimit-Limit", "RateLimit-Remaining", "RateLimit-Reset", "Retry-After"],
   }),
 );
-app.use(express.json({ limit: "64kb" }));
+// Pickup evidence is a resized image data URL; schema validation caps its size.
+app.use(express.json({ limit: "512kb" }));
 // Strips $ and . from payloads: blocks NoSQL operator injection like {"$gt":""}
 app.use(mongoSanitize({ replaceWith: "_" }));
 app.use(morgan(isProd ? "combined" : "dev"));
@@ -68,6 +73,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/errands", errandRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/transactions", transactionRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.use((req, res) => res.status(404).json({ error: "Route not found." }));
 
@@ -91,6 +97,11 @@ app.use((err, req, res, _next) => {
 });
 const start = async () => {
   await connectDB();
+  // Create runner_locations at startup, even before the first GPS update.
+  await RunnerLocation.init();
+  // Ensure MongoDB's TTL cleanup index for short-lived email codes exists.
+  await EmailCode.init();
+  await Notification.init();
   startExpiredErrandSweep();
   app.listen(PORT, () => {
     console.log(`  Upang Delivers API  ->  http://localhost:${PORT}/api/health`);

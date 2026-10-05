@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { UserCog, ShieldCheck, Download, AlertTriangle, User } from "lucide-react";
+import { ShieldCheck, Download, AlertTriangle, User, KeyRound, Clock3 } from "lucide-react";
 import { api } from "@/lib/api";
 
 type FormState = {
@@ -62,11 +62,15 @@ export default function AdminProfile({
   const [fullName, setFullName] = useState(name);
   const [studentId, setStudentId] = useState("");
   const [email, setEmail] = useState("");
+  const [lastLoginAt, setLastLoginAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<FormState>({ phone: "", spot: "" });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
+  const [passwordMsg, setPasswordMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // ---- Admin Accounts section state ----
   const [admins, setAdmins] = useState<any[] | null>(null);
@@ -85,6 +89,7 @@ export default function AdminProfile({
         setFullName(u.name ?? u.fullName ?? name);
         setStudentId(u.studentId ?? u.student_id ?? "");
         setEmail(u.email ?? "");
+        setLastLoginAt(u.lastLoginAt ?? null);
         setForm({ phone: u.phone ?? "", spot: u.spot ?? "" });
       }
       setLoading(false);
@@ -146,6 +151,24 @@ export default function AdminProfile({
     const u = res.user ?? {};
     setForm({ phone: u.phone ?? form.phone, spot: u.spot ?? form.spot });
     setMsg({ ok: true, text: "Profile changes saved." });
+  }
+
+  async function changePassword(e: React.FormEvent) {
+    e.preventDefault();
+    setPasswordMsg(null);
+    if (passwordForm.next !== passwordForm.confirm) {
+      setPasswordMsg({ ok: false, text: "The new passwords do not match." });
+      return;
+    }
+    setChangingPassword(true);
+    const res = await api.changePassword(token, passwordForm.current, passwordForm.next, passwordForm.confirm);
+    setChangingPassword(false);
+    if (!res.ok) {
+      setPasswordMsg({ ok: false, text: `${res.status} — ${res.error}` });
+      return;
+    }
+    setPasswordForm({ current: "", next: "", confirm: "" });
+    setPasswordMsg({ ok: true, text: "Password changed successfully." });
   }
 
   // Fetches users + errands only when Export is clicked — same shape as AdminUsers.tsx.
@@ -305,6 +328,35 @@ export default function AdminProfile({
                 className="mt-8 rounded-2xl bg-emerald-500 px-10 py-5 text-xl font-bold text-white shadow-lg shadow-emerald-500/25 transition hover:-translate-y-0.5 hover:bg-emerald-600 disabled:opacity-60"
               >
                 {saving ? "Saving..." : "Save Changes"}
+              </button>
+            </form>
+
+            <div className="mt-8 flex items-center gap-3 rounded-2xl bg-emerald-50/70 p-5">
+              <Clock3 className="h-5 w-5 shrink-0 text-emerald-700" />
+              <p className="text-sm text-slate-600">
+                Last sign-in: <span className="font-semibold text-slate-800">{lastLoginAt ? new Date(lastLoginAt).toLocaleString() : "No sign-in time recorded"}</span>
+              </p>
+            </div>
+
+            <form onSubmit={changePassword} className="mt-7 border-t border-slate-100 pt-7">
+              <h3 className="flex items-center gap-3 text-xl font-bold text-slate-900">
+                <KeyRound className="h-5 w-5 text-emerald-700" /> Change Password
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">Confirm your current password before saving a new one.</p>
+              {passwordMsg && <p className={`mt-4 rounded-2xl px-5 py-3 text-sm font-medium ${passwordMsg.ok ? "bg-emerald-50 text-emerald-700" : "bg-rose-50 text-rose-600"}`}>{passwordMsg.text}</p>}
+              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                <Field label="CURRENT PASSWORD">
+                  <input type="password" autoComplete="current-password" required value={passwordForm.current} onChange={(e) => setPasswordForm((f) => ({ ...f, current: e.target.value }))} className={inputEdit("currentPassword")} />
+                </Field>
+                <Field label="NEW PASSWORD">
+                  <input type="password" autoComplete="new-password" required minLength={8} value={passwordForm.next} onChange={(e) => setPasswordForm((f) => ({ ...f, next: e.target.value }))} className={inputEdit("newPassword")} />
+                </Field>
+                <Field label="CONFIRM NEW PASSWORD">
+                  <input type="password" autoComplete="new-password" required minLength={8} value={passwordForm.confirm} onChange={(e) => setPasswordForm((f) => ({ ...f, confirm: e.target.value }))} className={inputEdit("confirm")} />
+                </Field>
+              </div>
+              <button type="submit" disabled={changingPassword || loading} className="mt-5 rounded-2xl bg-emerald-500 px-7 py-3.5 font-bold text-white shadow-md transition hover:bg-emerald-600 disabled:opacity-60">
+                {changingPassword ? "Updating…" : "Update Password"}
               </button>
             </form>
           </div>

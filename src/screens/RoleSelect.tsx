@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { GraduationCap, Bike, ShieldCheck, ArrowLeft } from "lucide-react";
+import { GraduationCap, Bike, ArrowLeft } from "lucide-react";
 
 /** Roles a person can sign up as. The admin has its own portal and is never chosen here. */
 export type AppRole = "student" | "delivery";
@@ -12,12 +12,9 @@ const roles: { key: AppRole; label: string; icon: typeof Bike; blurb: string }[]
 export default function RoleSelect({
   onBack,
   onContinue,
-  onAdmin,
 }: {
   onBack: () => void;
   onContinue: (role: AppRole) => void;
-  /** Optional: the Admin Portal link is shown only when a handler is provided. */
-  onAdmin?: () => void;
 }) {
   const [value, setValue] = useState<AppRole>("student");
 
@@ -73,17 +70,6 @@ export default function RoleSelect({
           Get Started
         </button>
 
-        {onAdmin && (
-          <div className="w-full max-w-lg border-t border-white/30 pt-6">
-            <p className="text-sm text-emerald-950/70">Campus staff managing the platform?</p>
-            <button
-              onClick={onAdmin}
-              className="mx-auto mt-3 flex items-center gap-2 rounded-2xl bg-[#0B1524] px-7 py-4 font-bold text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-slate-800"
-            >
-              <ShieldCheck className="h-5 w-5 text-emerald-400" /> Go to Admin Portal
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

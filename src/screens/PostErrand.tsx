@@ -31,7 +31,7 @@ export default function PostErrand({
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
   const [reward, setReward] = useState("50");
-  const [cod, setCod] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState("cash_on_delivery");
   const [deadline, setDeadline] = useState(deadlines[0]);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [banner, setBanner] = useState("");
@@ -42,7 +42,11 @@ export default function PostErrand({
   setBusy(true);
   setBanner("");
 
-  const payload = { title, instructions, pickup, dropoff, reward, category, cod, deadline };
+  const payload = {
+    title, instructions, pickup, dropoff, reward, category, deadline,
+    paymentMethod,
+    cod: paymentMethod === "cash_on_delivery",
+  };
   
   // 1. Client-side Validation
   const clientErrors = api.validateErrand(payload);
@@ -207,13 +211,14 @@ export default function PostErrand({
               <span className="text-3xl font-bold text-slate-500">₱</span>
               <input
                 value={reward}
-                onChange={(e) => setReward(e.target.value)}
+                onChange={(e) => setReward(e.target.value.replace(/\D/g, ""))}
                 inputMode="numeric"
+                aria-label="Runner reward in pesos"
                 className="w-full bg-transparent text-4xl font-extrabold text-slate-900 outline-none"
               />
             </div>
             <p className="mt-3 text-sm text-slate-500">
-              Suggested reward for this distance: ₱45 - ₱60
+              Minimum ₱20. The runner reward is separate from the purchase bill.
             </p>
             {err("reward")}
           </div>
@@ -229,15 +234,17 @@ export default function PostErrand({
                 <option key={d}>{d}</option>
               ))}
             </select>
-            <label className="mt-5 flex cursor-pointer items-center gap-3 text-lg text-slate-700">
-              <input
-                type="checkbox"
-                checked={cod}
-                onChange={(e) => setCod(e.target.checked)}
-                className="h-6 w-6 accent-emerald-500"
-              />
-              Payment on delivery (COD)
-            </label>
+            <label className="mt-5 block text-xs font-bold tracking-[0.12em] text-slate-400">PAYMENT METHOD</label>
+            <select
+              value={paymentMethod}
+              onChange={(e) => setPaymentMethod(e.target.value)}
+              className="mt-2 w-full appearance-none rounded-2xl bg-slate-50 px-6 py-5 text-lg text-slate-800 outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="cash_on_delivery">Cash on delivery</option>
+              <option value="e_wallet">E-wallet (GCash/Maya)</option>
+              <option value="bank_transfer">Bank transfer</option>
+            </select>
+            <p className="mt-2 text-xs text-slate-500">This records how you plan to pay the runner. E-wallet and bank payments are arranged directly; the app does not process transfers.</p>
           </div>
         </div>
       </section>

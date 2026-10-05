@@ -28,6 +28,15 @@ const errandSchema = new mongoose.Schema(
       validate: { validator: Number.isInteger, message: "Reward must be a whole number." },
     },
     cod: { type: Boolean, default: false },
+    paymentMethod: {
+      type: String,
+      enum: ["cash_on_delivery", "e_wallet", "bank_transfer"],
+      default: "cash_on_delivery",
+    },
+    billAmount: { type: Number, min: 0.01, max: 100000, default: null },
+    receiptImage: { type: String, default: null, maxlength: 480000, select: false },
+    receiptExpiresAt: { type: Date, default: null },
+    pickedUpAt: { type: Date, default: null },
     deadline: { type: Date, required: true },
     // Poster's contact number, shown to the runner once they're assigned.
     // Digits only, exactly 11 (PH mobile format, e.g. 09XXXXXXXXX) — no
@@ -44,6 +53,7 @@ const errandSchema = new mongoose.Schema(
       default: "open",
       index: true,
     },
+    cancelReason: { type: String, trim: true, maxlength: 300, default: "" },
   },
   { timestamps: true, collection: "errands", toJSON: { versionKey: false } },
 );

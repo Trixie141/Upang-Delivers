@@ -3,8 +3,11 @@ import { LineChart } from "../../components/Charts";
 export interface AdminStats {
   totalUsers: number;
   activeErrands: number;
+  openErrands: number;
   completedToday: number;
   revenue: number;
+  overdueErrands: number;
+  cancellations: number;
 }
 
 export interface ActivityItem {
@@ -20,8 +23,11 @@ export interface ActivityItem {
 const EMPTY_STATS: AdminStats = {
   totalUsers: 0,
   activeErrands: 0,
+  openErrands: 0,
   completedToday: 0,
   revenue: 0,
+  overdueErrands: 0,
+  cancellations: 0,
 };
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -41,15 +47,18 @@ export default function AdminDashboard({
   const cards = [
     { label: "TOTAL USERS", value: stats.totalUsers.toLocaleString() },
     { label: "ACTIVE ERRANDS", value: stats.activeErrands.toLocaleString() },
+    { label: "OPEN ERRANDS", value: stats.openErrands.toLocaleString() },
     { label: "COMPLETED TODAY", value: stats.completedToday.toLocaleString() },
-    { label: "REVENUE", value: `₱${stats.revenue.toLocaleString()}` },
+    { label: "COMPLETED REWARD VALUE", value: `₱${stats.revenue.toLocaleString()}` },
+    { label: "OVERDUE ERRANDS", value: stats.overdueErrands.toLocaleString() },
+    { label: "CANCELLATIONS", value: stats.cancellations.toLocaleString() },
   ];
 
   const hasWeekly = weekly.length === 7 && weekly.some((v) => v > 0);
 
   return (
     <div className="mx-auto max-w-6xl space-y-7">
-      <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {cards.map((c) => (
           <div key={c.label} className="rounded-3xl bg-white p-7 shadow-sm">
             <p className="text-xs font-bold tracking-[0.14em] text-slate-400">

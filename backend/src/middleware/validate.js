@@ -36,8 +36,8 @@ const FULL_NAME = z
   .min(4, "Full name must be at least 4 characters.")
   .max(60, "Full name must be 60 characters or fewer.")
   .regex(
-    /^[\p{L}.'-]+(?:\s+[\p{L}.'-]+)+$/u,
-    "Enter your first and last name (letters only).",
+    /^[\p{Lu}][\p{L}.'-]*(?:\s+[\p{Lu}][\p{L}.'-]*)+$/u,
+    "Use letters only and capitalize each name, like Juan Dela Cruz.",
   );
 
 const STUDENT_ID = z
@@ -87,9 +87,36 @@ export const registerSchema = z
 // Login does not enforce the password policy: it would reveal the policy to attackers
 // and lock out any older account. Wrong passwords simply fail the bcrypt comparison.
 export const loginSchema = z.object({
+    email: EMAIL,
+    password: z.string().min(1, "Password is required.").max(128, "Password is too long."),
+    requestedRole: z.enum(["student", "delivery"]).optional(),
+  });
+
+export const emailCodeSchema = z.object({
   email: EMAIL,
-  password: z.string().min(1, "Password is required.").max(128, "Password is too long."),
+  code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code from your email."),
 });
+
+export const completeRegistrationSchema = registerSchema.and(
+  z.object({ code: emailCodeSchema.shape.code }),
+);
+
+export const forgotPasswordSchema = z.object({ email: EMAIL });
+
+export const resetPasswordSchema = emailCodeSchema.extend({ password: PASSWORD });
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Enter your current password.").max(128),
+    newPassword: PASSWORD,
+    confirm: z.string(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.newPassword !== v.confirm)
+      ctx.addIssue({ path: ["confirm"], code: "custom", message: "Passwords do not match." });
+    if (v.newPassword === v.currentPassword)
+      ctx.addIssue({ path: ["newPassword"], code: "custom", message: "Choose a different password." });
+  });
 
 export const errandSchema = z.object({
   title: noMarkup(
@@ -115,7 +142,7 @@ export const errandSchema = z.object({
     z
       .number({ required_error: "Reward is required.", invalid_type_error: "Reward must be a number." })
       .int("Reward must be a whole number.")
-      .min(10, "Minimum reward is ₱10.")
+      .min(20, "Minimum reward is ₱20.")
       .max(1000, "Maximum reward is ₱1000."),
   ),
   // z.coerce.boolean() turns the string "false" into true, so parse it explicitly.
@@ -123,6 +150,7 @@ export const errandSchema = z.object({
     (v) => (v === "true" ? true : v === "false" ? false : v),
     z.boolean({ invalid_type_error: "cod must be true or false." }).default(false),
   ),
+  paymentMethod: z.enum(["cash_on_delivery", "e_wallet", "bank_transfer"]).default("cash_on_delivery"),
   deadline: noMarkup(z.string().trim().min(3, "Deadline is required.").max(60)),
   contactPhone: z
     .string()
@@ -130,9 +158,12 @@ export const errandSchema = z.object({
     .regex(/^\d{11}$/, "Phone number must be exactly 11 digits, numbers only."),
 });
 
-   export const profileSchema = z.object({
+export const profileSchema = z.object({
   fullName: FULL_NAME,
-  studentId: STUDENT_ID,
+  studentId: z
+    .string()
+    .trim()
+    .refine((value) => value === "" || /^\d{2}-\d{4}-\d{3,6}$/.test(value), "Use the campus format 03-0000-000000."),
   email: EMAIL,
   phone: z
     .string()
@@ -140,7 +171,8 @@ export const errandSchema = z.object({
     .max(20, "Phone number is too long.")
     .regex(/^[0-9+()\-\s]*$/, "Use digits, spaces, + ( ) or - only.")
     .default(""),
-  spot: noMarkup(z.string().trim().max(80, "Meeting spot is too long.")).default(""),
+   spot: noMarkup(z.string().trim().max(80, "Meeting spot is too long.")).default(""),
+  available: z.boolean().optional(),
   currentPassword: z.string().max(128).optional().default(""),
 });
 
@@ -150,6 +182,30 @@ export const errandSchema = z.object({
     z.number().int("Rating must be a whole number.").min(1, "Minimum rating is 1.").max(5, "Maximum rating is 5."),
   ),
   comment: noMarkup(z.string().trim().max(200, "Comment is too long.")).default(""),
+});
+
+export const locationSchema = z.object({
+  lat: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() !== "" ? Number(v) : v),
+    z.number().min(-90).max(90),
+  ),
+  lng: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() !== "" ? Number(v) : v),
+    z.number().min(-180).max(180),
+  ),
+});
+
+export const pickupEvidenceSchema = z.object({
+  billAmount: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() !== "" ? Number(v) : v),
+    z.number({ required_error: "Bill amount is required.", invalid_type_error: "Bill amount must be a number." })
+      .finite("Bill amount must be a valid number.")
+      .positive("Bill amount must be greater than ₱0.")
+      .max(100000, "Bill amount cannot exceed ₱100,000."),
+  ),
+  receiptImage: z.string()
+    .max(480_000, "Receipt image is too large. Choose a smaller photo.")
+    .regex(/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/, "Upload a valid receipt image."),
 });
 
 /** Express middleware factory: rejects invalid payloads with 422 + field map. */

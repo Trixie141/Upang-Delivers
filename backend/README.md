@@ -9,7 +9,7 @@ cd backend
 cp .env.example .env          # paste your Atlas SRV string into MONGODB_URI
 npm install
 npm run seed                  # creates demo users with bcrypt-hashed passwords
-npm start                     # http://localhost:4000/api/health
+npm start                     # http://localhost:5000/api/health
 ```
 
 ### Getting your Atlas connection string
@@ -26,8 +26,11 @@ npm start                     # http://localhost:4000/api/health
 |---|---|
 | `users` | `fullName`, `studentId`, `email`, **`passwordHash`**, `role`, `status`, `failedLogins` |
 | `errands` | `ownerId` → users, `runnerId`, title, instructions, category, reward, status |
+| `runner_locations` | Latest GPS point per active errand, linked by `errandId` and `runnerId` |
 | `audit_logs` | every auth / validation / authorization decision (TTL 30 days) |
-| `rate_limits_auth` | rate-limit counters, so throttling survives restarts & multiple instances |
+| `rate_limits_api` | shared rate-limit counters for auth (`auth|...` keys) and general API requests, so throttling survives restarts & multiple instances |
+
+To move existing embedded errand GPS points into `runner_locations`, run `node src/scripts/migrateRunnerLocations.js` from the `backend` directory. The migration verifies each copied point before removing the old embedded field.
 
 ## Security requirements — where each one lives
 
@@ -99,6 +102,11 @@ student→admin escalation `403` · forged token `401` · auth rate limit `429`.
 |---|---|---|---|
 | GET | `/api/health` | – | connection + security posture |
 | POST | `/api/auth/register` | rate-limited | full name, student ID, PHINMA email, strong password |
+| POST | `/api/auth/complete-registration` | rate-limited | verifies the signup code and creates the Atlas user record |
+| POST | `/api/auth/verify-email` | rate-limited | verifies the signup code and activates the account |
+| POST | `/api/auth/resend-verification` | rate-limited | sends a new signup verification code |
+| POST | `/api/auth/forgot-password` | rate-limited | sends a short-lived reset code; response avoids account enumeration |
+| POST | `/api/auth/reset-password` | rate-limited | validates the code and changes the password |
 | POST | `/api/auth/login` | rate-limited | admins rejected here (403) |
 | POST | `/api/auth/admin/login` | rate-limited | non-admins rejected (403) |
 | GET | `/api/auth/me` | JWT | current profile |
@@ -109,6 +117,41 @@ student→admin escalation `403` · forged token `401` · auth rate limit `429`.
 | POST | `/api/errands/:id/accept` | JWT + runner | role checked |
 | PATCH | `/api/errands/:id/status` | JWT + owner/runner | state machine |
 | GET | `/api/admin/*` | JWT + admin | users, hashes, errands, audit-log, stats |
+
+## Email verification and password reset
+
+Before email verification, signup stores only the email address and a hashed,
+10-minute code in Atlas's `email_codes` collection. The remaining signup form
+stays in the browser. Nodemailer sends the code; after it is verified,
+`complete-registration` creates the active user document in `users`. The Admin
+Portal cannot bypass email verification. Use “Send a new code” from the
+verification screen or login if the first message did not arrive. Legacy
+unverified user records from the previous approval flow are removed when that
+person retries signup; they are then created normally after verification.
+
+Signup and password-reset codes are hashed in the `email_codes` collection and
+expire after 10 minutes. MongoDB's TTL index removes expired code records
+automatically; the application also checks expiry itself. Atlas stores only
+these small temporary records, not the outgoing email or code in plaintext.
+
+Email delivery uses Nodemailer with SMTP and is independent of MongoDB Atlas.
+For a Gmail sender, enable 2-Step Verification and create an app password if the
+account allows it. Managed school accounts may require an administrator to enable
+SMTP relay or may not allow app passwords. Set these values in `backend/.env`;
+never commit or share the SMTP password:
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=465
+SMTP_SECURE=true
+SMTP_USER=your-app-sender@gmail.com
+SMTP_PASS=your-16-character-app-password
+EMAIL_FROM=Upang Delivers <your-app-sender@gmail.com>
+```
+
+Use the same mailbox in `SMTP_USER` and `EMAIL_FROM` for Gmail SMTP. Port 465 uses
+implicit TLS; port 587 typically uses STARTTLS (`SMTP_SECURE=false`). Test delivery
+with the provider's own account settings before using it for student accounts.
 
 ## Demo accounts (after `npm run seed`)
 

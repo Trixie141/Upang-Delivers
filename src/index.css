@@ -1,1 +1,51 @@
 @import "tailwindcss";
+
+/* Shared green gradient theme across landing, student, runner, and admin screens. */
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  background: linear-gradient(135deg, #ecfdf5 0%, #ffffff 48%, #dcfce7 100%);
+  background-attachment: fixed;
+}
+
+/* Keep white panels light while carrying the same green tint throughout the app. */
+.bg-white {
+  background-image: linear-gradient(135deg, #ffffff 0%, #f5fbf7 100%);
+}
+
+/* Give the app's primary green controls one consistent gradient. */
+.bg-emerald-400,
+.bg-emerald-500,
+.bg-emerald-600,
+.bg-emerald-700 {
+  background-image: linear-gradient(115deg, #10b981 0%, #059669 52%, #047857 100%);
+}
+
+.bg-emerald-600,
+.bg-emerald-700 {
+  background-image: linear-gradient(115deg, #059669 0%, #047857 100%);
+}
+
+/* The pale auth and landing backgrounds follow the app's green palette too. */
+.bg-\[\#FDEFE6\],
+.bg-\[\#fbfaf7\] {
+  background-image: linear-gradient(135deg, #ecfdf5 0%, #ffffff 52%, #dcfce7 100%);
+}
+
+/* Deep green gradients keep admin and runner emphasis panels in the same theme. */
+.bg-slate-900,
+[class~="bg-[#0B1524]"] {
+  background-image: linear-gradient(125deg, #064e3b 0%, #0f3d35 52%, #102a2a 100%);
+}
+
+[class~="bg-[#111E30]"] {
+  background-image: linear-gradient(135deg, #123f35 0%, #102f2d 100%);
+}
+
+[class~="bg-[#F4F6F8]"] {
+  background-image: linear-gradient(135deg, #ecfdf5 0%, #ffffff 52%, #dcfce7 100%);
+}
