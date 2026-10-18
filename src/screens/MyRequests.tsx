@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import * as L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { Trash2, Clock, MapPin, AlertCircle, RefreshCw, UserCheck, Star, Navigation } from "lucide-react";
 import { api } from "../lib/api";
 import { formatDeadline, formatPaymentMethod } from "../lib/format";
@@ -39,54 +41,96 @@ interface ReviewState {
 
 const TRACKING_STATUSES = ["in_progress", "picked_up"];
 const POLL_INTERVAL_MS = 5000;
-const CAMPUS_MAP_WIDTH = 880;
-const CAMPUS_MAP_HEIGHT = 631;
-// Approximate GPS bounds for the campus drawing, centered on the mapped UPang
-// Dagupan campus (about 16.0467, 120.3417). The supplied schematic has no
-// georeferencing, so positions are approximate until surveyed control points
-// are available. These pixel limits exclude the route-map panel and inset.
+// Approximate rectangle around the PHINMA UPang Dagupan campus. Keep in sync
+// with backend/src/config/campus.js, where the API enforces this boundary.
 const CAMPUS_BOUNDS = { south: 16.0460, north: 16.0474, west: 120.3410, east: 120.3427 };
-const CAMPUS_IMAGE_FOOTPRINT = { left: 210, top: 28, right: 722, bottom: 613 };
+const CAMPUS_CENTER: L.LatLngExpression = [16.0467, 120.3417];
 
 function LiveTrackingMap({ location }: { location: { lat: number; lng: number } | null }) {
-  const longitudeRatio = location
-    ? (location.lng - CAMPUS_BOUNDS.west) / (CAMPUS_BOUNDS.east - CAMPUS_BOUNDS.west)
-    : null;
-  const latitudeRatio = location
-    ? (CAMPUS_BOUNDS.north - location.lat) / (CAMPUS_BOUNDS.north - CAMPUS_BOUNDS.south)
-    : null;
-  const isOnCampusMap = longitudeRatio !== null && latitudeRatio !== null &&
-    longitudeRatio >= 0 && longitudeRatio <= 1 && latitudeRatio >= 0 && latitudeRatio <= 1;
-  const x = isOnCampusMap
-    ? ((CAMPUS_IMAGE_FOOTPRINT.left + longitudeRatio! * (CAMPUS_IMAGE_FOOTPRINT.right - CAMPUS_IMAGE_FOOTPRINT.left)) / CAMPUS_MAP_WIDTH) * 100
-    : null;
-  const y = isOnCampusMap
-    ? ((CAMPUS_IMAGE_FOOTPRINT.top + latitudeRatio! * (CAMPUS_IMAGE_FOOTPRINT.bottom - CAMPUS_IMAGE_FOOTPRINT.top)) / CAMPUS_MAP_HEIGHT) * 100
-    : null;
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const runnerMarkerRef = useRef<L.Marker | null>(null);
+  const [tileError, setTileError] = useState(false);
+  const isOnCampus = location !== null &&
+    location.lat >= CAMPUS_BOUNDS.south && location.lat <= CAMPUS_BOUNDS.north &&
+    location.lng >= CAMPUS_BOUNDS.west && location.lng <= CAMPUS_BOUNDS.east;
+
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return;
+
+    const map = L.map(mapContainerRef.current, {
+      zoomControl: true,
+      minZoom: 15,
+      maxZoom: 19,
+      maxBounds: [
+        [CAMPUS_BOUNDS.south - 0.001, CAMPUS_BOUNDS.west - 0.001],
+        [CAMPUS_BOUNDS.north + 0.001, CAMPUS_BOUNDS.east + 0.001],
+      ],
+      maxBoundsViscosity: 0.8,
+    }).setView(CAMPUS_CENTER, 17);
+
+    const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>',
+    });
+    tiles.on("tileerror", () => setTileError(true));
+    tiles.on("tileload", () => setTileError(false));
+    tiles.addTo(map);
+    mapRef.current = map;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      runnerMarkerRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!isOnCampus || !location) {
+      if (runnerMarkerRef.current) {
+        map.removeLayer(runnerMarkerRef.current);
+        runnerMarkerRef.current = null;
+      }
+      map.setView(CAMPUS_CENTER, 17);
+      return;
+    }
+
+    const point: L.LatLngExpression = [location.lat, location.lng];
+    if (!runnerMarkerRef.current) {
+      runnerMarkerRef.current = L.marker(point, {
+        title: "Runner's latest on-campus GPS position",
+        icon: L.divIcon({
+          className: "runner-map-marker-wrap",
+          html: '<span class="runner-map-marker" aria-hidden="true"></span>',
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        }),
+      }).addTo(map);
+      runnerMarkerRef.current.bindPopup("Runner’s latest on-campus location");
+    } else {
+      runnerMarkerRef.current.setLatLng(point);
+    }
+    map.panTo(point, { animate: false });
+  }, [location?.lat, location?.lng, isOnCampus]);
 
   return (
-    <div className="relative flex h-72 w-full items-center justify-center overflow-hidden rounded-2xl bg-slate-100">
-      <div className="relative h-full max-w-full aspect-[880/631]">
-        <img
-          src="/campus-map.jpg"
-          alt="PHINMA University of Pangasinan Dagupan campus map"
-          className="absolute inset-0 h-full w-full object-fill"
-        />
-        {isOnCampusMap && (
-          <div
-            className="absolute z-10 h-5 w-5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-white bg-sky-600 shadow-[0_1px_8px_#0f172a80] ring-4 ring-sky-500/25"
-            style={{ left: `${x}%`, top: `${y}%` }}
-            title="Runner's latest GPS position"
-          />
-        )}
-      </div>
+    <div className="relative h-72 w-full overflow-hidden rounded-2xl bg-slate-100">
+      <div ref={mapContainerRef} className="absolute inset-0 z-0" aria-label="Live runner location map" />
+      {tileError && (
+        <div className="absolute inset-x-3 top-3 z-[500] rounded-xl bg-amber-50/95 px-3 py-2 text-center text-sm font-medium text-amber-800 shadow">
+          Map tiles could not load. Check the internet connection and try again.
+        </div>
+      )}
       {!location ? (
         <div className="absolute inset-x-3 bottom-3 z-20 rounded-xl bg-white/95 px-3 py-2 text-center text-sm font-medium text-slate-600 shadow">
-          Waiting for the runner's first GPS update. The campus map will update automatically.
+          Waiting for an on-campus GPS update. Off-campus coordinates are not shared or stored.
         </div>
-      ) : !isOnCampusMap ? (
+      ) : !isOnCampus ? (
         <div className="absolute inset-x-3 bottom-3 z-20 rounded-xl bg-amber-50/95 px-3 py-2 text-center text-sm font-medium text-amber-800 shadow">
-          The runner is outside campus. Their home or off-campus location is not shown on this school map.
+          The runner is outside campus. Their off-campus location is not shown.
         </div>
       ) : null}
     </div>
@@ -364,6 +408,9 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
                         ? { lat: req.runnerLocation.lat, lng: req.runnerLocation.lng }
                         : null}
                     />
+                    <p className="mt-2 text-xs text-slate-400">
+                      Map data © OpenStreetMap contributors. Map requests reveal the viewed area to OpenStreetMap.
+                    </p>
                     {req.runnerLocation?.updatedAt && (
                       <p className="mt-2 text-right text-xs text-slate-400">
                         Last GPS update: {new Date(req.runnerLocation.updatedAt).toLocaleTimeString()}

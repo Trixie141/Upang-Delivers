@@ -3,6 +3,8 @@
  *   1) npm run seed    2) npm start    3) npm run test:security
  */
 const BASE = process.env.API_BASE || "http://localhost:4000/api";
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const results = [];
 
 const call = async (path, opts = {}) => {
@@ -23,10 +25,13 @@ const call = async (path, opts = {}) => {
 const check = (name, expected, got, pass) => results.push({ name, expected, got, pass });
 
 const run = async () => {
+  if (!ADMIN_EMAIL || !ADMIN_PASSWORD) {
+    throw new Error("Set ADMIN_EMAIL and ADMIN_PASSWORD to the configured admin account before running this check.");
+  }
   /* 1 — bcrypt hashing in Atlas ------------------------------------------ */
   const admin = await call("/auth/admin/login", {
     method: "POST",
-    body: { email: "admin@phinmaed.com", password: "Admin#2026" },
+    body: { email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
   });
   const adminToken = admin.json.token;
   const auth = { Authorization: `Bearer ${adminToken}` };

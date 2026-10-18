@@ -12,7 +12,7 @@ upang-delivers/
 │   │   │                      reports, settings, security & DB console
 │   │   ├── components/        Shell (sidebar/topbar), Charts (SVG)
 │   │   └── lib/
-│   │       ├── api.ts         in-browser mock backend (zero-setup demo)
+│   │       ├── api.ts         frontend client for the Express API
 │   │       ├── crypto.ts      salted PBKDF2-style SHA-256
 │   │       └── http.ts        REAL client for the Express API
 │   └── public/images/
@@ -58,10 +58,10 @@ If Node is installed in a nonstandard location, set `NODE_EXE` to the full path 
 
 ```bash
 cd backend
-cp .env.example .env    # paste your MongoDB Atlas SRV string into MONGODB_URI
+cp .env.example .env    # configure MongoDB, JWT_SECRET, ADMIN_NAME/EMAIL/PASSWORD and DEMO_PASSWORD
 npm install
-npm run seed            # bcrypt-hashed demo users
-npm start               # http://localhost:4000/api/health
+npm run seed -- --demo  # create admin, student, and runner demo accounts
+npm start               # http://localhost:5000/api/health
 ```
 
 > **Atlas setup:** Database → Connect → Drivers → copy the `mongodb+srv://…` URI,
@@ -72,12 +72,27 @@ npm start               # http://localhost:4000/api/health
 
 ```bash
 npm install
-echo "VITE_API_URL=http://localhost:4000/api" > .env.local   # optional
 npm run dev      # http://localhost:5173
 ```
 
-Without `.env.local` the UI runs on the built-in mock backend so you can demo
-everything (including the Security & DB console) with no server running.
+The frontend defaults to the `/api` path. Vite forwards `/api` requests to
+`http://localhost:5000`, so the Express backend and MongoDB connection must be
+running for the app to load or save real records. The separate
+`src/lib/http.ts` file is a legacy HTTP client; current screens use
+`src/lib/api.ts`.
+
+The seed script reads the administrator's `ADMIN_NAME`, `ADMIN_EMAIL`, and
+`ADMIN_PASSWORD` from `backend/.env`; there is no built-in admin identity or
+default credential. Set these values for each client installation before running
+the seed script. `DEMO_PASSWORD` is used only for the optional demo student and
+runner accounts. The script does not create sample errands; post an errand in
+the app during the demo. Before presenting, open
+`http://localhost:5000/api/health` and confirm it reports `ok: true`, then open
+`http://localhost:5173`. Browser geolocation and internet access are needed for
+live runner tracking and OpenStreetMap tiles. Map tile requests reveal the map
+area being viewed to OpenStreetMap. Only points inside the approximate Dagupan
+campus map bounds are saved or shared; off-campus points clear the previous
+pin. Those bounds are a rectangular approximation, not a surveyed geofence.
 
 ## Security checklist
 
@@ -99,6 +114,6 @@ cd backend && npm run test:security
 
 | Role | Email | Password |
 |---|---|---|
-| Student | john.upang@phinmaed.com | `Demo@1234` |
-| Delivery | mark.tan@phinmaed.com | `Demo@1234` |
-| Admin *(separate portal)* | admin@phinmaed.com | `Admin#2026` |
+| Student | john.upang@phinmaed.com | Value of `DEMO_PASSWORD` in `backend/.env` |
+| Delivery | mark.tan@phinmaed.com | Value of `DEMO_PASSWORD` in `backend/.env` |
+| Admin *(separate portal)* | Value of `ADMIN_EMAIL` in `backend/.env` | Value of `ADMIN_PASSWORD` in `backend/.env` |

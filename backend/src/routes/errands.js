@@ -10,6 +10,7 @@ import { RunnerLocation } from "../models/RunnerLocation.js";
 import { User } from "../models/User.js";
 import { Notification } from "../models/Notification.js";
 import { sweepExpiredErrands } from "../jobs/expiredErrandSweep.js";
+import { isInsideCampus } from "../config/campus.js";
 
 const router = Router();
 router.use(requireAuth);
@@ -32,7 +33,7 @@ router.get("/reviews/me", async (req, res, next) => {
   }
 });
 
-const STATUSES = ["in_progress", "picked_up", "review", "done", "cancelled"];
+const STATUSES = ["review", "done"];
 const FINAL = ["done", "cancelled"]; // once here, an errand can no longer change status
 
 async function saveNotifications(records) {
@@ -50,7 +51,12 @@ async function attachRunnerLocations(errands) {
   const locations = await RunnerLocation.find({
     errandId: { $in: errands.map((errand) => errand._id) },
   }).lean();
-  const byErrand = new Map(locations.map((location) => [String(location.errandId), location]));
+  const campusLocations = locations.filter((location) => isInsideCampus(location.lat, location.lng));
+  const offCampusIds = locations
+    .filter((location) => !isInsideCampus(location.lat, location.lng))
+    .map((location) => location._id);
+  if (offCampusIds.length) await RunnerLocation.deleteMany({ _id: { $in: offCampusIds } });
+  const byErrand = new Map(campusLocations.map((location) => [String(location.errandId), location]));
 
   return errands.map((errand) => {
     const value = errand.toObject();
@@ -136,6 +142,9 @@ router.delete("/:id", validObjectId(), requireOwnership(Errand), async (req, res
       audit(req.user.id, "DELETE", req.originalUrl, 403, "Non-owner delete blocked", req.ip);
       return res.status(403).json({ error: "Only the owner can delete." });
     }
+    if (req.resource.status !== "open") {
+      return res.status(409).json({ error: "Only an open errand can be removed. Active errands must be cancelled by an administrator or the deadline process." });
+    }
 
     await Errand.deleteOne({ _id: req.params.id });
     await RunnerLocation.deleteOne({ errandId: req.resource._id });
@@ -188,7 +197,7 @@ router.post("/:id/accept", validObjectId(), async (req, res, next) => {
   }
 });
 
-/* PATCH /api/errands/:id/status - owner or assigned runner only */
+/* PATCH /api/errands/:id/status - runner submits delivery; owner confirms it */
 router.patch("/:id/status", validObjectId(), requireOwnership(Errand), async (req, res, next) => {
   try {
     const { status } = req.body || {};
@@ -199,47 +208,50 @@ router.patch("/:id/status", validObjectId(), requireOwnership(Errand), async (re
       });
     }
 
-    if (FINAL.includes(req.resource.status)) {
-      audit(req.user.id, "PATCH", req.originalUrl, 409, `Blocked: already ${req.resource.status}`, req.ip);
-      return res.status(409).json({ error: `This errand is already ${req.resource.status}.` });
+    const isRunner = String(req.resource.runnerId) === req.user.id;
+    const isOwner = String(req.resource.ownerId) === req.user.id;
+    const expectedCurrentStatus = status === "review" ? "picked_up" : "review";
+    if ((status === "review" && !isRunner) || (status === "done" && !isOwner)) {
+      audit(req.user.id, "PATCH", req.originalUrl, 403, `Role not allowed to set ${status}`, req.ip);
+      return res.status(403).json({ error: status === "review"
+        ? "Only the assigned runner can submit the delivery for review."
+        : "Only the requester can confirm the completed delivery." });
     }
 
-    if (status === "picked_up") {
-      return res.status(409).json({ error: "Submit the bill amount and receipt to confirm pickup." });
+    const errand = await Errand.findOneAndUpdate(
+      { _id: req.resource._id, status: expectedCurrentStatus },
+      { $set: { status } },
+      { new: true, runValidators: true },
+    );
+    if (!errand) {
+      return res.status(409).json({ error: status === "review"
+        ? "Pickup must be confirmed before submitting the delivery for review."
+        : "The runner must submit the delivery for review before you can confirm it." });
     }
 
-    if (new Date(req.resource.deadline).getTime() <= Date.now()) {
-      await sweepExpiredErrands();
-      return res.status(409).json({ error: "This errand's deadline has passed and it was cancelled." });
+    // Stop sharing location once delivery is submitted for review or finished.
+    if (FINAL.includes(status) || status === "review") {
+      await RunnerLocation.deleteOne({ errandId: errand._id });
     }
 
-    req.resource.status = status;
-    await req.resource.save();
-
-    // A terminal errand no longer shares the runner's live position with the
-    // requester. Remove the saved GPS point as soon as delivery is completed
-    // (or cancelled), so later reads cannot expose a stale location.
-    if (FINAL.includes(status)) {
-      await RunnerLocation.deleteOne({ errandId: req.resource._id });
-    }
-
-    // Once an errand is marked done, record the cash-on-delivery handoff.
+    // Once an errand is marked done, record its selected payment method.
     // upsert avoids a duplicate-key error if this endpoint is ever called twice.
     if (status === "done") {
       await Transaction.findOneAndUpdate(
         { errandId: req.resource._id },
         {
           errandId: req.resource._id,
-          ownerId: req.resource.ownerId,
-          runnerId: req.resource.runnerId,
-          amount: req.resource.reward,
+          ownerId: errand.ownerId,
+          runnerId: errand.runnerId,
+          amount: errand.reward,
+          method: errand.paymentMethod,
         },
         { upsert: true, setDefaultsOnInsert: true },
       );
     }
 
     audit(req.user.id, "PATCH", req.originalUrl, 200, `Status -> ${status}`, req.ip);
-    res.json({ errand: req.resource });
+    res.json({ errand });
   } catch (err) {
     next(err);
   }
@@ -341,6 +353,13 @@ router.patch(
         return res.status(409).json({ error: "Location sharing is only active during delivery." });
       }
 
+      // Only retain campus GPS points. If the runner leaves the mapped campus,
+      // remove the previous point too so the requester cannot see a stale pin.
+      if (!isInsideCampus(req.valid.lat, req.valid.lng)) {
+        await RunnerLocation.deleteOne({ errandId: req.resource._id, runnerId: req.user.id });
+        return res.json({ ok: true, onCampus: false, location: null });
+      }
+
       const location = await RunnerLocation.findOneAndUpdate(
         { errandId: req.resource._id },
         {
@@ -367,7 +386,7 @@ router.patch(
         await RunnerLocation.deleteOne({ errandId: req.resource._id });
         return res.status(409).json({ error: "Location sharing is only active during delivery." });
       }
-      res.json({ ok: true, location });
+      res.json({ ok: true, onCampus: true, location });
     } catch (err) {
       next(err);
     }

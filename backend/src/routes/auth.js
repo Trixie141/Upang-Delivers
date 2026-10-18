@@ -22,6 +22,8 @@ import { sendEmailCode } from "../services/email.js";
 
 const router = Router();
 
+const LEGAL_POLICY_VERSION = "1.0";
+
 // Dummy hash so a missing account costs the same time as a wrong password
 // (prevents user-enumeration through response timing).
 const DUMMY_HASH = "$2a$12$CwTycUXWue0Thq9StjUM0uJ8.aB1u2w1oRz1nJ2yQnQmYYQmB7yDa";
@@ -124,7 +126,17 @@ router.post("/complete-registration", authLimiter, validate(completeRegistration
       return res.status(400).json({ error: "That code is invalid or expired. Request a new one.", code: "INVALID_EMAIL_CODE" });
     }
     // Successful SMTP-code verification is the account approval step.
-    const user = new User({ fullName, studentId, email, role, status: "active", emailVerified: true });
+    const user = new User({
+      fullName,
+      studentId,
+      email,
+      role,
+      status: "active",
+      emailVerified: true,
+      termsAcceptedAt: new Date(),
+      termsVersion: LEGAL_POLICY_VERSION,
+      privacyPolicyVersion: LEGAL_POLICY_VERSION,
+    });
     user.password = password;
     await user.save();
     await EmailCode.deleteMany({ email, purpose: "signup" });

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ArrowLeft, Eye, EyeOff, ShieldAlert, Package } from "lucide-react";
 import { api } from "../lib/api";
+import LegalDocumentModal, { type LegalDocument } from "../components/LegalDocumentModal";
 
 type SignUpRole = "student" | "delivery";
 
@@ -52,7 +53,7 @@ function validateSignUp(v: Form): Record<string, string> {
   }
 
   if (v.confirm !== pw) f.confirm = "Passwords do not match.";
-  if (!v.agree) f.agree = "You must accept the Campus Conduct Policy.";
+  if (!v.agree) f.agree = "You must accept the Terms and Conditions and Privacy Policy.";
 
   return f;
 }
@@ -80,6 +81,7 @@ export default function SignUp({
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [agree, setAgree] = useState(false);
+  const [legalDocument, setLegalDocument] = useState<LegalDocument | null>(null);
   const role: SignUpRole = "student";
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -127,7 +129,7 @@ export default function SignUp({
       setPendingVerification(true);
       setNotice(res.data.emailSent
         ? `We sent a 6-digit code to ${res.data.email}. It expires in 10 minutes. Your Atlas user record will be created after you verify the code.`
-        : "No user record has been created yet. Email delivery failed; configure SMTP in backend/.env, then request a new code.");
+        : "We couldn't send the verification email, so your account hasn't been created yet. Please contact the system administrator. Once email delivery is available, tap Send a new code.");
       return;
     }
 
@@ -194,7 +196,11 @@ export default function SignUp({
           </div>
           <h1 className="mt-7 text-3xl font-extrabold text-slate-900">Verify your email</h1>
           <p className="mt-3 text-slate-600">Enter the 6-digit code sent to <strong>{email}</strong>.</p>
-          {notice && <p className="mt-5 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{notice}</p>}
+          {notice && (
+            <p className={`mt-5 rounded-xl px-4 py-3 text-sm ${notice.startsWith("We couldn't send") ? "bg-amber-50 text-amber-900" : "bg-emerald-50 text-emerald-800"}`}>
+              {notice}
+            </p>
+          )}
           <form onSubmit={verifyEmail} className="mt-5">
             <label className="block text-xs font-bold tracking-wider text-slate-500">EMAIL VERIFICATION CODE</label>
             <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={verificationCode} onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" className="mt-2 w-full rounded-xl border border-slate-200 px-5 py-4 tracking-[0.3em] text-slate-800 outline-none focus:border-emerald-500" />
@@ -209,6 +215,7 @@ export default function SignUp({
   }
 
   return (
+    <>
     <div className="min-h-screen bg-[#FDEFE6] p-4 sm:p-8 lg:p-10">
       <div className="mx-auto grid max-w-6xl overflow-hidden rounded-[32px] shadow-2xl shadow-emerald-900/10 md:grid-cols-2">
         <form onSubmit={handleSubmit} noValidate className="bg-white px-8 py-12 sm:px-14">
@@ -312,15 +319,35 @@ export default function SignUp({
           />
           <FieldError msg={fields.confirm} />
 
-          <label className="mt-5 flex cursor-pointer items-start gap-3 text-sm text-slate-600">
+          <div className="mt-5 flex items-start gap-3 text-sm text-slate-600">
             <input
+              id="signup-legal-consent"
               type="checkbox"
               checked={agree}
               onChange={(e) => setAgree(e.target.checked)}
-              className="mt-0.5 h-5 w-5 accent-emerald-500"
+              className="mt-0.5 h-5 w-5 shrink-0 accent-emerald-500"
             />
-            I accept the Student Gigs Guidelines and the Campus Conduct Policy.
-          </label>
+            <div className="leading-6">
+              <label htmlFor="signup-legal-consent" className="cursor-pointer">
+                I agree to the
+              </label>{" "}
+              <button
+                type="button"
+                onClick={() => setLegalDocument("terms")}
+                className="font-bold text-emerald-700 underline underline-offset-2"
+              >
+                Terms and Conditions
+              </button>{" "}
+              <span>and confirm that I have read the</span>{" "}
+              <button
+                type="button"
+                onClick={() => setLegalDocument("privacy")}
+                className="font-bold text-emerald-700 underline underline-offset-2"
+              >
+                Privacy Policy
+              </button>.
+            </div>
+          </div>
           <FieldError msg={fields.agree} />
 
           {error && (
@@ -360,5 +387,7 @@ export default function SignUp({
         </div>
       </div>
     </div>
+    <LegalDocumentModal document={legalDocument} onClose={() => setLegalDocument(null)} />
+    </>
   );
 }

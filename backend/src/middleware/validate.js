@@ -56,7 +56,7 @@ export const registerSchema = z
       errorMap: () => ({ message: "Role must be student or delivery." }),
     }),
     agree: z.literal(true, {
-      errorMap: () => ({ message: "You must accept the Campus Conduct Policy." }),
+      errorMap: () => ({ message: "You must accept the Terms and Conditions and Privacy Policy." }),
     }),
   })
   .superRefine((v, ctx) => {

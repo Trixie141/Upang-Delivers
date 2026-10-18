@@ -1,12 +1,13 @@
 /**
  * Seed script (development only).
  *
- *   npm run seed                     create the admin account, or rotate its password
+ *   npm run seed                     create/update the configured admin account
  *   npm run seed -- --demo           also create the demo student and two runners (no errands are seeded)
  *   npm run seed -- --demo --reset   wipe users and errands first (audit_logs is kept)
  *
- * Passwords come from backend/.env (ADMIN_PASSWORD, DEMO_PASSWORD) and are never
- * stored in source code. Only bcrypt hashes reach MongoDB.
+ * Admin identity and passwords come from backend/.env (ADMIN_NAME, ADMIN_EMAIL,
+ * ADMIN_PASSWORD). No default administrator account is embedded in source.
+ * Passwords are stored only as bcrypt hashes.
  */
 import "dotenv/config";
 import mongoose from "mongoose";
@@ -28,7 +29,8 @@ if (process.env.NODE_ENV === "production") {
   abort("refusing to run while NODE_ENV=production.");
 }
 
-const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "admin@phinmaed.com").trim().toLowerCase();
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || "").trim().toLowerCase();
+const ADMIN_NAME = (process.env.ADMIN_NAME || "").trim();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const DEMO_PASSWORD = process.env.DEMO_PASSWORD;
 
@@ -40,6 +42,8 @@ const requireStrong = (name, value) => {
   }
 };
 
+if (!ADMIN_EMAIL) abort("ADMIN_EMAIL must be set in backend/.env; there is no default admin account.");
+if (!ADMIN_NAME) abort("ADMIN_NAME must be set in backend/.env.");
 requireStrong("ADMIN_PASSWORD", ADMIN_PASSWORD);
 if (DEMO) requireStrong("DEMO_PASSWORD", DEMO_PASSWORD);
 
@@ -58,12 +62,13 @@ const run = async () => {
     await Promise.all([User.deleteMany({}), Errand.deleteMany({})]);
   }
 
-  // Admin: created if missing; if it exists, its password is set to ADMIN_PASSWORD.
+  // Admin identity is supplied by the system owner in backend/.env.
   let admin = await User.findOne({ email: ADMIN_EMAIL });
   const adminIsNew = !admin;
   if (!admin) {
-    admin = new User({ fullName: "Campus Admin", studentId: null, email: ADMIN_EMAIL, role: "admin" });
+    admin = new User({ fullName: ADMIN_NAME, studentId: null, email: ADMIN_EMAIL, role: "admin" });
   }
+  admin.fullName = ADMIN_NAME;
   admin.role = "admin";
   admin.status = "active";
   admin.password = ADMIN_PASSWORD; // virtual: bcrypt-hashed by the model hook

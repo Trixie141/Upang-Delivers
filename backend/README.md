@@ -6,9 +6,9 @@ Express + **MongoDB Atlas** (Mongoose) REST API for the campus micro-gigs platfo
 
 ```bash
 cd backend
-cp .env.example .env          # paste your Atlas SRV string into MONGODB_URI
+cp .env.example .env          # configure MongoDB and your chosen admin name/email/password
 npm install
-npm run seed                  # creates demo users with bcrypt-hashed passwords
+npm run seed -- --demo        # provisions the configured admin and demo users
 npm start                     # http://localhost:5000/api/health
 ```
 
@@ -153,10 +153,13 @@ Use the same mailbox in `SMTP_USER` and `EMAIL_FROM` for Gmail SMTP. Port 465 us
 implicit TLS; port 587 typically uses STARTTLS (`SMTP_SECURE=false`). Test delivery
 with the provider's own account settings before using it for student accounts.
 
-## Demo accounts (after `npm run seed`)
+## Accounts (after `npm run seed`)
+
+Set `ADMIN_NAME`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD` in `backend/.env` for the
+administrator chosen by the system owner. The repository contains no default
+admin account or password. Use `DEMO_PASSWORD` for the optional demo accounts.
 
 | Role | Email | Password |
 |---|---|---|
-| Student | john.upang@phinmaed.com | `Demo@1234` |
-| Delivery | mark.tan@phinmaed.com | `Demo@1234` |
-| Admin | admin@phinmaed.com | `Admin@1234` |
+| Student | john.upang@phinmaed.com | Value of `DEMO_PASSWORD` in `backend/.env` |
+| Delivery | mark.tan@phinmaed.com | Value of `DEMO_PASSWORD` in `backend/.env` |

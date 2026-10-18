@@ -220,7 +220,7 @@ export const api = {
   updateErrandStatus: (
     token: string,
     id: string,
-    status: "in_progress" | "picked_up" | "review" | "done" | "cancelled",
+    status: "review" | "done",
   ) => request(`/errands/${id}/status`, "PATCH", token, { status }),
 
   /** POST /api/errands/:id/pickup - runner submits bill amount and receipt photo. */

@@ -46,6 +46,9 @@ const userSchema = new mongoose.Schema(
     status: { type: String, enum: ["pending", "active", "suspended"], default: "active" },
     // Existing accounts remain usable; registration explicitly starts unverified.
     emailVerified: { type: Boolean, default: true },
+    termsAcceptedAt: { type: Date, default: null },
+    termsVersion: { type: String, default: null },
+    privacyPolicyVersion: { type: String, default: null },
     failedLogins: { type: Number, default: 0 },
     lastLoginAt: { type: Date, default: null },
     available: { type: Boolean, default: true },

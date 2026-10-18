@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Bell, CheckCheck, PackageCheck, Sparkles, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 
@@ -16,27 +17,48 @@ export default function NotificationBell({ token, onOpen }: { token: string; onO
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelPosition, setPanelPosition] = useState({ top: 0, right: 8 });
+
+  const positionPanel = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const maxHeight = Math.min(window.innerHeight * 0.65, 448);
+    setPanelPosition({
+      top: Math.max(8, Math.min(rect.bottom + 12, window.innerHeight - maxHeight - 8)),
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  }, []);
 
   // Close the panel when clicking/tapping outside it or pressing Escape
   useEffect(() => {
     if (!open) return;
-    const onPointerDown = (event: MouseEvent | TouchEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (
+        !containerRef.current?.contains(target) &&
+        !panelRef.current?.contains(target)
+      ) {
         setOpen(false);
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("touchstart", onPointerDown);
+    positionPanel();
+    document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", positionPanel);
+    window.addEventListener("scroll", positionPanel, true);
     return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", positionPanel);
+      window.removeEventListener("scroll", positionPanel, true);
     };
-  }, [open]);
+  }, [open, positionPanel]);
 
   const refresh = useCallback(async () => {
     const result = await api.getNotifications(token);
@@ -83,21 +105,40 @@ export default function NotificationBell({ token, onOpen }: { token: string; onO
   return (
     <div ref={containerRef} className="relative z-50">
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => {
+          const next = !open;
+          if (next) {
+            positionPanel();
+            void refresh();
+          }
+          setOpen(next);
+        }}
         aria-label={unread ? `${unread} unread notifications` : "Notifications"}
         aria-expanded={open}
+        aria-controls="notification-panel"
         className="relative flex h-10 w-10 items-center justify-center rounded-2xl border border-emerald-100 bg-white text-emerald-800 shadow-sm transition hover:bg-emerald-50"
       >
         <Bell className="h-5 w-5" />
         {unread > 0 && <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-extrabold text-white">{unread > 99 ? "99+" : unread}</span>}
       </button>
 
-      {open && (
+      {open && createPortal(
         <div
-          // Inline width so it can't collapse to the 40px bell wrapper
-          style={{ width: "min(92vw, 24rem)", minWidth: "min(92vw, 20rem)" }}
-          className="absolute right-0 top-full z-[60] mt-3 overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl"
+          ref={panelRef}
+          id="notification-panel"
+          role="dialog"
+          aria-label="Notifications"
+          style={{
+            position: "fixed",
+            top: panelPosition.top,
+            right: panelPosition.right,
+            width: "min(92vw, 24rem)",
+            maxHeight: "min(65vh, 28rem)",
+            zIndex: 10000,
+          }}
+          className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-2xl"
         >
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
             <div className="min-w-0">
@@ -158,7 +199,8 @@ export default function NotificationBell({ token, onOpen }: { token: string; onO
               <CheckCheck className="h-4 w-4" /> Read notices stay for 30 days
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

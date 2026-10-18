@@ -159,12 +159,12 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
           return;
         }
 
-        setLocationError("");
         Promise.all(activeGigKey.split(",").map((id) =>
           updateLocation(token, id, latitude, longitude),
         )).then((results) => {
           const failure = results.find((result) => !result?.ok);
-          setSharingLocation(!failure);
+          const outsideCampus = results.some((result) => result?.ok && result.onCampus === false);
+          setSharingLocation(!failure && !outsideCampus);
           if (failure) {
             const fieldDetails = failure.fields
               ? Object.values(failure.fields).join(" ")
@@ -173,6 +173,8 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
               [failure.error, fieldDetails].filter(Boolean).join(" — ") ||
                 "The server couldn't save your location. Please refresh and try again.",
             );
+          } else if (outsideCampus) {
+            setLocationError("Outside the mapped campus area. Your GPS location is not being shared.");
           } else {
             setLocationError("");
           }
@@ -428,11 +430,17 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
                     {gig.status === "picked_up" && (
                       <button
                         disabled={updatingId === gig._id}
-                        onClick={() => updateStatus(gig._id, "done")}
+                        onClick={() => updateStatus(gig._id, "review")}
                         className="flex items-center gap-2 rounded-2xl bg-emerald-500 px-6 py-3 font-bold text-white shadow-md transition hover:bg-emerald-600 disabled:opacity-50"
                       >
-                        <CheckCircle2 className="h-4 w-4" /> Complete Delivery
+                        <CheckCircle2 className="h-4 w-4" /> Submit Delivery for Review
                       </button>
+                    )}
+
+                    {gig.status === "review" && (
+                      <span className="font-semibold text-purple-700">
+                        Delivery submitted. Waiting for the requester to confirm.
+                      </span>
                     )}
 
                     {gig.status === "done" && (

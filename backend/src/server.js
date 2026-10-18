@@ -11,6 +11,7 @@ import { startExpiredErrandSweep } from "./jobs/expiredErrandSweep.js";
 import { connectDB } from "./config/db.js";
 import { audit } from "./models/AuditLog.js";
 import { RunnerLocation } from "./models/RunnerLocation.js";
+import { CAMPUS_GPS_BOUNDS } from "./config/campus.js";
 import { EmailCode } from "./models/EmailCode.js";
 import authRoutes from "./routes/auth.js";
 import errandRoutes from "./routes/errands.js";
@@ -99,6 +100,15 @@ const start = async () => {
   await connectDB();
   // Create runner_locations at startup, even before the first GPS update.
   await RunnerLocation.init();
+  // Remove any off-campus GPS points retained by an older server version.
+  await RunnerLocation.deleteMany({
+    $or: [
+      { lat: { $lt: CAMPUS_GPS_BOUNDS.south } },
+      { lat: { $gt: CAMPUS_GPS_BOUNDS.north } },
+      { lng: { $lt: CAMPUS_GPS_BOUNDS.west } },
+      { lng: { $gt: CAMPUS_GPS_BOUNDS.east } },
+    ],
+  });
   // Ensure MongoDB's TTL cleanup index for short-lived email codes exists.
   await EmailCode.init();
   await Notification.init();
