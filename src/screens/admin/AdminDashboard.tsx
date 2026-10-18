@@ -175,7 +175,6 @@ export default function AdminDashboard({
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-white px-5 py-4 shadow-sm">
         <div>
           <h2 className="font-bold text-slate-900">Dashboard overview</h2>
-          <p className="mt-1 text-xs text-slate-500">The activity period filters errand KPIs and charts.</p>
         </div>
         <label className="flex items-center gap-3 text-sm font-semibold text-slate-600">
           Activity period
@@ -203,7 +202,6 @@ export default function AdminDashboard({
       <div className="grid gap-7 lg:grid-cols-2">
         <section className="rounded-3xl bg-white p-7 shadow-sm lg:col-span-2">
           <h3 className="text-xl font-bold text-slate-900">Completed Errands Over Time</h3>
-          <p className="mt-1 text-sm text-slate-500">Completed errands grouped by their latest activity date.</p>
           <div className="mt-5">
             {completed.length ? (
               <LineChart data={lineData} labels={lineLabels} showAxis />
@@ -217,7 +215,6 @@ export default function AdminDashboard({
 
         <section className="rounded-3xl bg-white p-7 shadow-sm">
           <h3 className="text-xl font-bold text-slate-900">Errands by Status</h3>
-          <p className="mt-1 text-sm text-slate-500">Current status of errands in the selected activity period.</p>
           {periodErrands.length ? (
             <HorizontalBars rows={statusRows} />
           ) : (
@@ -227,7 +224,6 @@ export default function AdminDashboard({
 
         <section className="rounded-3xl bg-white p-7 shadow-sm">
           <h3 className="text-xl font-bold text-slate-900">Errands by Category</h3>
-          <p className="mt-1 text-sm text-slate-500">Distribution of campus errand types in the selected period.</p>
           {periodErrands.length ? (
             <HorizontalBars rows={categoryRows} />
           ) : (
@@ -238,7 +234,6 @@ export default function AdminDashboard({
 
       <section className="rounded-3xl bg-white p-7 shadow-sm">
         <h3 className="text-2xl font-bold text-slate-900">Recent Campus Activity</h3>
-        <p className="mt-1 text-sm text-slate-500">Showing activity from the selected period.</p>
         <div className="mt-6 overflow-x-auto">
           <table className="w-full min-w-[760px] text-left">
             <thead>
@@ -281,7 +276,6 @@ export default function AdminDashboard({
             </tbody>
           </table>
         </div>
-        <p className="mt-4 text-xs text-slate-400">Errand KPIs and charts use the latest 200 errand records returned by the admin API. Total users is an all-time count.</p>
       </section>
     </div>
   );
