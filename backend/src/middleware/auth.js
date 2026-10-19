@@ -42,10 +42,18 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ error: "Invalid or expired token." });
     }
 
-    const user = await User.findById(payload.sub).select("role status").lean();
+    const user = await User.findById(payload.sub).select("role status suspensionReason suspendedUntil").lean();
     if (!user) return res.status(401).json({ error: "Invalid or expired token." });
+    if (user.status === "suspended" && user.suspendedUntil && user.suspendedUntil <= new Date()) {
+      await User.updateOne({ _id: user._id, status: "suspended", suspendedUntil: { $lte: new Date() } }, {
+        $set: { status: "active", suspensionReason: "", suspendedUntil: null },
+      });
+      user.status = "active";
+    }
     if (user.status !== "active") {
-      return res.status(403).json({ error: "This account is suspended." });
+      const reason = user.suspensionReason || "the account suspension set by the administrator";
+      const until = user.suspendedUntil ? ` It is scheduled to end on ${new Date(user.suspendedUntil).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}.` : " The suspension is indefinite; contact the administrator for help.";
+      return res.status(403).json({ error: `Your account is suspended due to: ${reason}.${until}`, code: "ACCOUNT_SUSPENDED" });
     }
 
     // Role comes from the database, not from the token.

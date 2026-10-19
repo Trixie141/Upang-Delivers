@@ -269,8 +269,8 @@ export const api = {
   getStats: (token: string) => request("/admin/stats", "GET", token),
 
   /** PATCH /api/admin/users/:id/status */
-  setUserStatus: (token: string, id: string, status: "active" | "suspended", reason = "") =>
-    request(`/admin/users/${id}/status`, "PATCH", token, { status, reason }),
+  setUserStatus: (token: string, id: string, status: "active" | "suspended", reason = "", duration: "1" | "3" | "7" | "30" | "permanent" | "preserve" = "permanent") =>
+    request(`/admin/users/${id}/status`, "PATCH", token, { status, reason, duration }),
 };
 
 async function request<T = any>(

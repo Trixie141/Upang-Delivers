@@ -48,6 +48,8 @@ const userSchema = new mongoose.Schema(
       index: true,
     },
     status: { type: String, enum: ["pending", "active", "suspended"], default: "active" },
+    suspensionReason: { type: String, default: "", maxlength: 300 },
+    suspendedUntil: { type: Date, default: null },
     // Existing accounts remain usable; registration explicitly starts unverified.
     emailVerified: { type: Boolean, default: true },
     termsAcceptedAt: { type: Date, default: null },
@@ -110,6 +112,8 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     spot: this.spot ?? "",
     role: this.role,
     status: this.status,
+    suspensionReason: this.suspensionReason ?? "",
+    suspendedUntil: this.suspendedUntil ?? null,
     idVerificationStatus: this.idVerificationStatus,
     idVerificationReason: this.idVerificationReason,
     emailVerified: this.emailVerified !== false,

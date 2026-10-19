@@ -106,15 +106,20 @@ router.get("/stats", async (req, res) => {
 /* PATCH /api/admin/users/:id/status — suspend or reactivate */
 router.patch("/users/:id/status", validObjectId(), async (req, res) => {
   const { status } = req.body || {};
+  const duration = req.body?.duration ?? "permanent";
   if (!["active", "suspended"].includes(status))
     return res
       .status(422)
       .json({ error: "Invalid payload.", fields: { status: "Must be active or suspended." } });
+  if (status === "suspended" && !["1", "3", "7", "30", "permanent", "preserve"].includes(String(duration)))
+    return res.status(422).json({ error: "Choose a valid suspension length." });
   const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
   if (status === "suspended" && (reason.length < 8 || reason.length > 300))
     return res.status(422).json({ error: "Enter a reason (8–300 characters) before rejecting or suspending this account." });
     const existing = await User.findById(req.params.id);
     if (!existing) return res.status(404).json({ error: "Resource not found." });
+    if (duration === "preserve" && existing.status !== "suspended")
+      return res.status(409).json({ error: "Only an already suspended account can keep its current suspension end date." });
     if (existing.role === "admin")
       return res.status(403).json({ error: "Administrator accounts cannot be approved, rejected, suspended, or reactivated here." });
     if (status === "active" && existing.idVerificationStatus === "rejected")
@@ -125,7 +130,27 @@ router.patch("/users/:id/status", validObjectId(), async (req, res) => {
     if (status === "active" && existing.emailVerified === false)
       return res.status(409).json({ error: "This user must verify their email before activation." });
     const wasPending = existing.status === "pending";
+    const rejectingPendingStudent = existing.role === "student" && existing.idVerificationStatus === "pending";
+    const suspensionReasonOptions = [
+      "Repeated policy violations",
+      "Harassment or abusive conduct",
+      "Fraudulent or misleading activity",
+      "Misuse of the errand system",
+      "Repeated cancellations or failure to complete errands",
+    ];
+    if (status === "suspended" && !rejectingPendingStudent &&
+      !suspensionReasonOptions.includes(reason) && !(reason.startsWith("Other: ") && reason.length >= 14 && reason.length <= 300))
+      return res.status(422).json({ error: "Choose a listed suspension reason or provide a brief explanation for Other." });
     existing.status = status;
+    if (status === "suspended" && !wasPending && !(existing.role === "student" && existing.idVerificationStatus === "pending")) {
+      existing.suspensionReason = reason;
+      if (duration !== "preserve") {
+        existing.suspendedUntil = duration === "permanent" ? null : new Date(Date.now() + Number(duration) * 24 * 60 * 60 * 1000);
+      }
+    } else if (status === "active") {
+      existing.suspensionReason = "";
+      existing.suspendedUntil = null;
+    }
     if (existing.role === "student" && existing.idVerificationStatus === "pending") {
       existing.idVerificationStatus = status === "active" ? "approved" : "rejected";
       existing.idVerificationReason = status === "active" ? "" : reason;

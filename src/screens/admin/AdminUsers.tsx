@@ -29,6 +29,14 @@ const ID_REJECTION_REASONS = [
   "Uploaded document is not a student ID",
   "Other — contact the administrator",
 ];
+const SUSPENSION_REASONS = [
+  "Repeated policy violations",
+  "Harassment or abusive conduct",
+  "Fraudulent or misleading activity",
+  "Misuse of the errand system",
+  "Repeated cancellations or failure to complete errands",
+  "Other",
+];
 const joinedDay = (u: any) => {
   const date = new Date(u.createdAt ?? 0);
   return isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -52,6 +60,12 @@ export default function AdminUsers({ token }: { token: string }) {
   const [studentIdImage, setStudentIdImage] = useState("");
   const [selfieImage, setSelfieImage] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
+  const [suspendTarget, setSuspendTarget] = useState<any>(null);
+  const [suspensionReason, setSuspensionReason] = useState(SUSPENSION_REASONS[0]);
+  const [suspensionOther, setSuspensionOther] = useState("");
+  const [suspensionDuration, setSuspensionDuration] = useState<"1" | "3" | "7" | "30" | "permanent">("7");
+  const [editingSuspension, setEditingSuspension] = useState(false);
+  const [activateTarget, setActivateTarget] = useState<any>(null);
 
   async function load() {
     setLoading(true);
@@ -119,17 +133,13 @@ export default function AdminUsers({ token }: { token: string }) {
   const first = Math.max(1, Math.min(current - 2, pages - 4));
   const pageNumbers = Array.from({ length: Math.min(5, pages) }, (_, i) => first + i);
 
-  async function changeStatus(u: any, next: "active" | "suspended", selectedReason?: string) {
+  async function changeStatus(u: any, next: "active" | "suspended", selectedReason?: string, duration: "1" | "3" | "7" | "30" | "permanent" | "preserve" = "permanent") {
     const approving = next === "active" && u.status === "pending";
     if (approving && u.emailVerified === false) {
       setError("This account must verify its email before it can be approved.");
       return;
     }
-    const action = next === "active"
-      ? `${approving ? "Approve" : "Reactivate"} ${nameOf(u)}?`
-      : `${u.status === "pending" ? "Reject" : "Suspend"} ${nameOf(u)}?`;
-    if (!window.confirm(action)) return;
-    const reason = next === "suspended" ? selectedReason ?? window.prompt("Enter a reason (at least 8 characters):")?.trim() ?? "" : "";
+    const reason = next === "suspended" ? selectedReason?.trim() ?? "" : "";
     if (next === "suspended" && (u.role === "student" && u.idVerificationStatus === "pending" ? !ID_REJECTION_REASONS.includes(reason) : reason.length < 8)) {
       setError("A reason of at least 8 characters is required. No changes were made.");
       return;
@@ -137,14 +147,17 @@ export default function AdminUsers({ token }: { token: string }) {
 
     setBusyId(idOf(u));
     setError("");
-    const res = await api.setUserStatus(token, idOf(u), next, reason);
+    const res = await api.setUserStatus(token, idOf(u), next, reason, duration);
     setBusyId("");
 
     if (!res.ok) {
       setError(`${res.status} — ${res.error}`);
       return;
     }
-    setUsers((all) => all.map((x) => (idOf(x) === idOf(u) ? { ...x, status: next } : x)));
+    const suspendedUntil = duration === "preserve" ? u.suspendedUntil ?? null : next === "suspended" && duration !== "permanent" ? new Date(Date.now() + Number(duration) * 24 * 60 * 60 * 1000).toISOString() : null;
+    setUsers((all) => all.map((x) => (idOf(x) === idOf(u) ? { ...x, status: next, suspensionReason: next === "suspended" ? reason : "", suspendedUntil } : x)));
+    if (suspendTarget && idOf(suspendTarget) === idOf(u)) setSuspendTarget(null);
+    if (activateTarget && idOf(activateTarget) === idOf(u)) setActivateTarget(null);
     if (reviewing && idOf(reviewing) === idOf(u)) setReviewing(null);
   }
 
@@ -288,6 +301,7 @@ export default function AdminUsers({ token }: { token: string }) {
                       >
                         {suspended ? "Suspended" : pending ? "Needs Verification" : "Active"}
                       </span>
+                      {suspended && <p className="mt-2 max-w-56 whitespace-normal text-xs text-rose-600">Due to: {u.suspensionReason || "Reason not recorded yet"}{u.suspendedUntil ? ` · until ${new Date(u.suspendedUntil).toLocaleDateString("en-PH")}` : " · Indefinite"}</p>}
                       {u.idVerificationStatus === "rejected" && <p className="mt-2 max-w-52 whitespace-normal text-xs text-rose-600">ID rejected: {u.idVerificationReason}</p>}
                     </td>
                     <td className="px-6 py-5 whitespace-nowrap text-sm text-slate-600">
@@ -311,7 +325,7 @@ export default function AdminUsers({ token }: { token: string }) {
                         <span className="text-sm text-rose-500">ID rejected</span>
                       ) : (
                         <button
-                          onClick={() => changeStatus(u, suspended ? "active" : "suspended")}
+                          onClick={() => suspended ? setActivateTarget(u) : (setEditingSuspension(false), setSuspendTarget(u), setSuspensionReason(SUSPENSION_REASONS[0]), setSuspensionOther(""), setSuspensionDuration("7"))}
                           disabled={busyId === idOf(u)}
                           className={`rounded-xl border px-5 py-2 font-semibold transition disabled:opacity-50 ${
                             suspended
@@ -322,6 +336,7 @@ export default function AdminUsers({ token }: { token: string }) {
                           {busyId === idOf(u) ? "Saving..." : suspended ? "Activate" : "Suspend"}
                         </button>
                       )}
+                      {suspended && <button onClick={() => { const isOther = !SUSPENSION_REASONS.includes(u.suspensionReason); setEditingSuspension(true); setSuspendTarget(u); setSuspensionReason(isOther ? "Other" : u.suspensionReason || "Other"); setSuspensionOther(isOther && u.suspensionReason.startsWith("Other: ") ? u.suspensionReason.slice(7) : ""); }} className="mt-2 rounded-lg px-3 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-800">Edit reason</button>}
                     </td>
                   </tr>
                 );
@@ -329,6 +344,30 @@ export default function AdminUsers({ token }: { token: string }) {
           </tbody>
         </table>
       </div>
+
+      {suspendTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="suspend-user-title">
+          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+            <h2 id="suspend-user-title" className="text-2xl font-extrabold text-slate-900">{editingSuspension ? "Update suspension reason" : "Suspend account"}</h2>
+            <p className="mt-2 text-sm text-slate-500">{editingSuspension ? `Add or correct the reason for ${nameOf(suspendTarget)}. The current end date will stay the same.` : `Choose a reason and how long ${nameOf(suspendTarget)} should be unable to use the system.`}</p>
+            <label className="mt-6 block text-xs font-bold uppercase tracking-wide text-slate-500">Reason</label>
+            <select value={suspensionReason} onChange={(e) => setSuspensionReason(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100">
+              {SUSPENSION_REASONS.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+            </select>
+            {suspensionReason === "Other" && <textarea value={suspensionOther} onChange={(e) => setSuspensionOther(e.target.value.slice(0, 280))} maxLength={280} rows={3} placeholder="Add a brief explanation (8–280 characters)" className="mt-3 w-full resize-y rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-800 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100" />}
+            {!editingSuspension && <><label className="mt-5 block text-xs font-bold uppercase tracking-wide text-slate-500">Suspension length</label>
+            <select value={suspensionDuration} onChange={(e) => setSuspensionDuration(e.target.value as typeof suspensionDuration)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-800 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100">
+              <option value="1">1 day</option><option value="3">3 days</option><option value="7">7 days</option><option value="30">30 days</option><option value="permanent">Permanent, until an admin reactivates</option>
+            </select></>}
+            <div className="mt-7 flex justify-end gap-3">
+              <button onClick={() => { setSuspendTarget(null); setEditingSuspension(false); }} className="rounded-xl border border-slate-200 px-4 py-2.5 font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button disabled={busyId === idOf(suspendTarget) || (suspensionReason === "Other" && suspensionOther.trim().length < 8)} onClick={() => changeStatus(suspendTarget, "suspended", suspensionReason === "Other" ? `Other: ${suspensionOther.trim()}` : suspensionReason, editingSuspension ? "preserve" : suspensionDuration)} className="rounded-xl bg-rose-600 px-5 py-2.5 font-semibold text-white hover:bg-rose-700 disabled:opacity-50">{busyId === idOf(suspendTarget) ? "Saving..." : editingSuspension ? "Save reason" : "Suspend account"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activateTarget && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="activate-user-title"><div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl sm:p-8"><h2 id="activate-user-title" className="text-2xl font-extrabold text-slate-900">Reactivate account?</h2><p className="mt-2 text-sm text-slate-500">{nameOf(activateTarget)} will be able to sign in and use the system again.</p><div className="mt-7 flex justify-end gap-3"><button onClick={() => setActivateTarget(null)} className="rounded-xl border border-slate-200 px-4 py-2.5 font-semibold text-slate-600 hover:bg-slate-50">Cancel</button><button disabled={busyId === idOf(activateTarget)} onClick={() => changeStatus(activateTarget, "active")} className="rounded-xl bg-emerald-600 px-5 py-2.5 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">{busyId === idOf(activateTarget) ? "Saving..." : "Reactivate"}</button></div></div></div>}
 
       {reviewing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Review student ID">

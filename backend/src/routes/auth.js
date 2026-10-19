@@ -253,13 +253,21 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res, next)
       user.status = "active";
       await user.save();
     }
+    if (user.status === "suspended" && user.suspendedUntil && user.suspendedUntil <= new Date()) {
+      user.status = "active";
+      user.suspensionReason = "";
+      user.suspendedUntil = null;
+      await user.save();
+    }
     if (user.status !== "active") {
       audit(email, "POST", "/api/auth/login", 403, "Suspended account", req.ip);
       if (user.idVerificationStatus === "pending")
         return res.status(403).json({ error: "Your student ID is awaiting administrator review." });
       if (user.idVerificationStatus === "rejected")
         return res.status(403).json({ error: `Your student ID was not approved: ${user.idVerificationReason || "Please contact the administrator."}` });
-      return res.status(403).json({ error: "This account is suspended." });
+      const reason = user.suspensionReason || "the account suspension set by the administrator";
+      const until = user.suspendedUntil ? ` It is scheduled to end on ${user.suspendedUntil.toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}.` : " The suspension is indefinite; contact the administrator for help.";
+      return res.status(403).json({ error: `Your account is suspended due to: ${reason}.${until}`, code: "ACCOUNT_SUSPENDED" });
     }
       if (user.role === "admin") {
         audit(email, "POST", "/api/auth/login", 403, "Admin must use the admin portal", req.ip);

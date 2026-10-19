@@ -7,6 +7,7 @@ import morgan from "morgan";
 import mongoSanitize from "express-mongo-sanitize";
 import mongoose from "mongoose";
 import { startExpiredErrandSweep } from "./jobs/expiredErrandSweep.js";
+import { startSuspensionSweep } from "./jobs/suspensionSweep.js";
 
 import { connectDB } from "./config/db.js";
 import { audit } from "./models/AuditLog.js";
@@ -113,6 +114,7 @@ const start = async () => {
   await EmailCode.init();
   await Notification.init();
   startExpiredErrandSweep();
+  startSuspensionSweep();
   app.listen(PORT, () => {
     console.log(`  Upang Delivers API  ->  http://localhost:${PORT}/api/health`);
     console.log(
