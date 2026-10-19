@@ -40,7 +40,11 @@ const DOCUMENTS = {
     sections: [
       {
         heading: "Information the service uses",
-        body: "This includes your name, student ID, PHINMA email, password hash, profile details, errand instructions and contact details, selected payment method, transaction amount, reviews, and security records. The app does not store your plain-text password.",
+        body: "This includes your name, student ID number, student ID image and an image captured through the live signup camera for account review, PHINMA email, password hash, profile details, errand instructions and contact details, selected payment method, transaction amount, reviews, and security records. The app does not store your plain-text password.",
+      },
+      {
+        heading: "Student identity review",
+        body: "Your student ID image and signup camera capture are stored with your account and are available only to authenticated administrators for manual comparison and account eligibility review. The system does not perform automated facial recognition or automated liveness detection. These images are not displayed on your public profile or to other students and runners. Contact the administrator to ask about correcting or removing them.",
       },
       {
         heading: "How information is used",
@@ -126,7 +130,7 @@ export default function LegalDocumentModal({
             ))}
           </div>
           <p className="mt-6 border-t border-slate-100 pt-4 text-xs text-slate-400">
-            Policy version 1.0 · October 18, 2026
+            Policy version 1.1 · October 20, 2026
           </p>
         </div>
         <footer className="border-t border-slate-100 px-6 py-4 text-right">

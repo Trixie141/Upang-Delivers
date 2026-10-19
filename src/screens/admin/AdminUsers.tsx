@@ -20,7 +20,15 @@ const TABS = [
 
 const nameOf = (u: any) => u.fullName ?? u.name ?? "Unknown";
 const idOf = (u: any) => String(u._id ?? u.id ?? "");
-const isPending = (u: any) => u.emailVerified === false;
+const isPending = (u: any) => u.status === "pending" || u.emailVerified === false;
+const ID_REJECTION_REASONS = [
+  "ID image is unclear or unreadable",
+  "Name does not match the account",
+  "Student ID number does not match",
+  "Invalid or expired student ID",
+  "Uploaded document is not a student ID",
+  "Other — contact the administrator",
+];
 const joinedDay = (u: any) => {
   const date = new Date(u.createdAt ?? 0);
   return isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
@@ -40,6 +48,10 @@ export default function AdminUsers({ token }: { token: string }) {
   const [joinedTo, setJoinedTo] = useState("");
   const [page, setPage] = useState(1);
   const [busyId, setBusyId] = useState("");
+  const [reviewing, setReviewing] = useState<any>(null);
+  const [studentIdImage, setStudentIdImage] = useState("");
+  const [selfieImage, setSelfieImage] = useState("");
+  const [rejectionReason, setRejectionReason] = useState("");
 
   async function load() {
     setLoading(true);
@@ -107,7 +119,7 @@ export default function AdminUsers({ token }: { token: string }) {
   const first = Math.max(1, Math.min(current - 2, pages - 4));
   const pageNumbers = Array.from({ length: Math.min(5, pages) }, (_, i) => first + i);
 
-  async function changeStatus(u: any, next: "active" | "suspended") {
+  async function changeStatus(u: any, next: "active" | "suspended", selectedReason?: string) {
     const approving = next === "active" && u.status === "pending";
     if (approving && u.emailVerified === false) {
       setError("This account must verify its email before it can be approved.");
@@ -117,8 +129,8 @@ export default function AdminUsers({ token }: { token: string }) {
       ? `${approving ? "Approve" : "Reactivate"} ${nameOf(u)}?`
       : `${u.status === "pending" ? "Reject" : "Suspend"} ${nameOf(u)}?`;
     if (!window.confirm(action)) return;
-    const reason = next === "suspended" ? window.prompt("Enter a reason (at least 8 characters):")?.trim() ?? "" : "";
-    if (next === "suspended" && reason.length < 8) {
+    const reason = next === "suspended" ? selectedReason ?? window.prompt("Enter a reason (at least 8 characters):")?.trim() ?? "" : "";
+    if (next === "suspended" && (u.role === "student" && u.idVerificationStatus === "pending" ? !ID_REJECTION_REASONS.includes(reason) : reason.length < 8)) {
       setError("A reason of at least 8 characters is required. No changes were made.");
       return;
     }
@@ -133,6 +145,22 @@ export default function AdminUsers({ token }: { token: string }) {
       return;
     }
     setUsers((all) => all.map((x) => (idOf(x) === idOf(u) ? { ...x, status: next } : x)));
+    if (reviewing && idOf(reviewing) === idOf(u)) setReviewing(null);
+  }
+
+  async function openIdReview(user: any) {
+    setReviewing(user);
+    setStudentIdImage("");
+    setSelfieImage("");
+    setRejectionReason(ID_REJECTION_REASONS[0]);
+    const result = await api.getStudentIdImage(token, idOf(user));
+    if (!result.ok) {
+      setError(`${result.status} — ${result.error || "Could not load the student ID image."}`);
+      setReviewing(null);
+      return;
+    }
+    setStudentIdImage(result.studentIdImage);
+    setSelfieImage(result.selfieImage);
   }
 
   return (
@@ -260,6 +288,7 @@ export default function AdminUsers({ token }: { token: string }) {
                       >
                         {suspended ? "Suspended" : pending ? "Needs Verification" : "Active"}
                       </span>
+                      {u.idVerificationStatus === "rejected" && <p className="mt-2 max-w-52 whitespace-normal text-xs text-rose-600">ID rejected: {u.idVerificationReason}</p>}
                     </td>
                     <td className="px-6 py-5 whitespace-nowrap text-sm text-slate-600">
                       <p>
@@ -275,7 +304,11 @@ export default function AdminUsers({ token }: { token: string }) {
                       {u.role === "admin" ? (
                         <span className="text-slate-300">—</span>
                       ) : pending ? (
-                        <span className="text-sm text-slate-400">Waiting for email verification</span>
+                        u.role === "student" && u.idVerificationStatus === "pending" ? (
+                          <button onClick={() => openIdReview(u)} className="rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-white hover:bg-emerald-600">Review Student ID</button>
+                        ) : <span className="text-sm text-slate-400">Waiting for email verification</span>
+                      ) : u.idVerificationStatus === "rejected" ? (
+                        <span className="text-sm text-rose-500">ID rejected</span>
                       ) : (
                         <button
                           onClick={() => changeStatus(u, suspended ? "active" : "suspended")}
@@ -296,6 +329,39 @@ export default function AdminUsers({ token }: { token: string }) {
           </tbody>
         </table>
       </div>
+
+      {reviewing && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-label="Review student ID">
+          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
+            <h2 className="text-xl font-extrabold text-slate-900">Review student ID</h2>
+            <p className="mt-1 text-sm text-slate-500">{nameOf(reviewing)} · {reviewing.studentId}</p>
+            <p className="mt-3 text-sm text-slate-500">Compare the live signup camera capture with the student ID manually. The system does not use automated facial recognition or liveness detection.</p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div>
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Student ID</p>
+                <div className="flex min-h-48 items-center justify-center rounded-2xl bg-slate-50 p-3">
+                  {studentIdImage ? <img src={studentIdImage} alt={`Student ID for ${nameOf(reviewing)}`} className="max-h-[50vh] max-w-full rounded-lg object-contain" /> : <p className="text-sm text-slate-400">Loading ID photo…</p>}
+                </div>
+              </div>
+              <div>
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-slate-500">Live camera capture</p>
+                <div className="flex min-h-48 items-center justify-center rounded-2xl bg-slate-50 p-3">
+                  {selfieImage ? <img src={selfieImage} alt={`Live signup camera capture for ${nameOf(reviewing)}`} className="max-h-[50vh] max-w-full rounded-lg object-contain" /> : <p className="text-sm text-slate-400">Loading camera capture…</p>}
+                </div>
+              </div>
+            </div>
+            <label className="mt-5 block text-xs font-bold uppercase tracking-wide text-slate-500">Rejection reason</label>
+            <select value={rejectionReason} onChange={(e) => setRejectionReason(e.target.value)} className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
+              {ID_REJECTION_REASONS.map((reason) => <option key={reason} value={reason}>{reason}</option>)}
+            </select>
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <button onClick={() => setReviewing(null)} className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-600">Close</button>
+              <button disabled={!studentIdImage || !selfieImage || busyId === idOf(reviewing)} onClick={() => changeStatus(reviewing, "suspended", rejectionReason)} className="rounded-xl bg-rose-600 px-4 py-2 font-semibold text-white disabled:opacity-50">Reject ID</button>
+              <button disabled={!studentIdImage || !selfieImage || busyId === idOf(reviewing)} onClick={() => changeStatus(reviewing, "active")} className="rounded-xl bg-emerald-600 px-4 py-2 font-semibold text-white disabled:opacity-50">Approve ID</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <p className="text-slate-500">

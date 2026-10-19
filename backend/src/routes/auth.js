@@ -22,7 +22,7 @@ import { sendEmailCode } from "../services/email.js";
 
 const router = Router();
 
-const LEGAL_POLICY_VERSION = "1.0";
+const LEGAL_POLICY_VERSION = "1.1";
 
 // Dummy hash so a missing account costs the same time as a wrong password
 // (prevents user-enumeration through response timing).
@@ -37,8 +37,14 @@ async function issueEmailCode(email, purpose) {
     email,
     purpose,
     codeHash: hashCode(code),
-    expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    expiresAt: new Date(Date.now() + (purpose === "admin_login" ? 5 : 10) * 60 * 1000),
   });
+  if (purpose === "admin_login" && process.env.NODE_ENV === "development") {
+    // Local demo accounts may not have a real mailbox. Keep the same hashed,
+    // expiring, one-use MFA challenge, but print its code only in the dev server terminal.
+    console.info("  Local demo admin sign-in code:", code);
+    return true;
+  }
   try {
     await sendEmailCode({ to: email, code, purpose });
     return true;
@@ -114,7 +120,7 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res,
 /* POST /api/auth/complete-registration ------------------------------------ */
 router.post("/complete-registration", authLimiter, validate(completeRegistrationSchema), async (req, res, next) => {
   try {
-    const { fullName, studentId, email, password, role, code } = req.valid;
+    const { fullName, studentId, studentIdImage, selfieImage, email, password, role, code } = req.valid;
     if (await User.exists({ email })) {
       return res.status(422).json({ error: "An account with this email already exists.", fields: { email: "An account with this email already exists." } });
     }
@@ -131,8 +137,11 @@ router.post("/complete-registration", authLimiter, validate(completeRegistration
       studentId,
       email,
       role,
-      status: "active",
+      status: role === "student" ? "pending" : "active",
       emailVerified: true,
+      studentIdImage: role === "student" ? studentIdImage : null,
+      selfieImage: role === "student" ? selfieImage : null,
+      idVerificationStatus: role === "student" ? "pending" : "not_required",
       termsAcceptedAt: new Date(),
       termsVersion: LEGAL_POLICY_VERSION,
       privacyPolicyVersion: LEGAL_POLICY_VERSION,
@@ -140,6 +149,10 @@ router.post("/complete-registration", authLimiter, validate(completeRegistration
     user.password = password;
     await user.save();
     await EmailCode.deleteMany({ email, purpose: "signup" });
+    if (role === "student") {
+      audit(email, "POST", "/api/auth/verify-email", 200, "Student account awaiting ID review", req.ip);
+      return res.json({ verificationPending: true, message: "Email verified. Your student ID is waiting for administrator review. You can log in after it is approved." });
+    }
     audit(email, "POST", "/api/auth/verify-email", 200, "Email verified; account activated", req.ip);
     res.json({ token: signToken(user), user: user.toSafeJSON() });
   } catch (err) {
@@ -216,9 +229,6 @@ router.post("/reset-password", authLimiter, validate(resetPasswordSchema), async
 router.post("/login", authLimiter, validate(loginSchema), async (req, res, next) => {
   try {
     const { email, password, requestedRole } = req.valid;
-    if (!requestedRole) {
-      return res.status(400).json({ error: "Choose Student or Runner login to continue." });
-    }
     const user = await User.findOne({ email }).select("+passwordHash");
 
     const ok = user
@@ -245,6 +255,10 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res, next)
     }
     if (user.status !== "active") {
       audit(email, "POST", "/api/auth/login", 403, "Suspended account", req.ip);
+      if (user.idVerificationStatus === "pending")
+        return res.status(403).json({ error: "Your student ID is awaiting administrator review." });
+      if (user.idVerificationStatus === "rejected")
+        return res.status(403).json({ error: `Your student ID was not approved: ${user.idVerificationReason || "Please contact the administrator."}` });
       return res.status(403).json({ error: "This account is suspended." });
     }
       if (user.role === "admin") {
@@ -286,9 +300,41 @@ router.post("/admin/login", authLimiter, validate(loginSchema), async (req, res,
       audit(email, "POST", "/api/auth/admin/login", 403, "Non-admin at admin portal", req.ip);
       return res.status(403).json({ error: "This portal is restricted to administrators." });
     }
+    if (user.status !== "active" || user.emailVerified === false) {
+      audit(email, "POST", "/api/auth/admin/login", 403, "Inactive or unverified admin account", req.ip);
+      return res.status(403).json({ error: "This administrator account is not active and verified." });
+    }
 
-    await User.updateOne({ _id: user._id }, { failedLogins: 0, lastLoginAt: new Date() });
-    audit(email, "POST", "/api/auth/admin/login", 200, "Admin session issued", req.ip);
+    const emailSent = await issueEmailCode(email, "admin_login");
+    if (!emailSent) {
+      audit(email, "POST", "/api/auth/admin/login", 503, "Admin login code delivery failed", req.ip);
+      return res.status(503).json({ error: "Could not send the admin sign-in code. Please try again." });
+    }
+    await User.updateOne({ _id: user._id }, { failedLogins: 0 });
+    audit(email, "POST", "/api/auth/admin/login", 202, "Admin password accepted; MFA code sent", req.ip);
+    res.status(202).json({
+      mfaRequired: true,
+      email,
+      deliveryMode: process.env.NODE_ENV === "development" ? "console" : "email",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* POST /api/auth/admin/login/verify — issue the session only after admin MFA */
+router.post("/admin/login/verify", authLimiter, validate(emailCodeSchema), async (req, res, next) => {
+  try {
+    const { email, code } = req.valid;
+    const user = await User.findOne({ email });
+    const record = await validEmailCode(email, "admin_login", code);
+    if (!user || user.role !== "admin" || user.status !== "active" || user.emailVerified === false || !record) {
+      audit(email, "POST", "/api/auth/admin/login/verify", 401, "Invalid or expired admin MFA code", req.ip);
+      return res.status(401).json({ error: "The sign-in code is invalid or expired. Sign in again to request a new code." });
+    }
+
+    await User.updateOne({ _id: user._id }, { lastLoginAt: new Date() });
+    audit(email, "POST", "/api/auth/admin/login/verify", 200, "Admin MFA verified; session issued", req.ip);
     res.json({ token: signToken(user), user: user.toSafeJSON() });
   } catch (err) {
     next(err);

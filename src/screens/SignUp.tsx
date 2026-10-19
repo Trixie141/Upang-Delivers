@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Eye, EyeOff, ShieldAlert, Package } from "lucide-react";
 import { api } from "../lib/api";
 import LegalDocumentModal, { type LegalDocument } from "../components/LegalDocumentModal";
@@ -14,18 +14,56 @@ const titleCaseName = (value: string) =>
   value.replace(/(^|[\s'-])(\p{L})/gu, (_match, separator: string, letter: string) => separator + letter.toLocaleUpperCase());
 
 type Form = {
+  role: SignUpRole;
   fullName: string;
   studentId: string;
   email: string;
   password: string;
   confirm: string;
   agree: boolean;
+  studentIdImage: string;
+  selfieImage: string;
 };
+
+async function compressImageAsJpeg(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1400 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not process this image.");
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  for (const quality of [0.82, 0.72, 0.62, 0.52, 0.42]) {
+    const data = canvas.toDataURL("image/jpeg", quality);
+    if (data.length <= 220_000) return data;
+  }
+  throw new Error("Image is still too large. Choose a smaller or clearer photo.");
+}
+
+function captureVideoFrame(video: HTMLVideoElement): string {
+  const scale = Math.min(1, 1000 / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+  canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not capture the camera image.");
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  for (const quality of [0.78, 0.68, 0.58, 0.48, 0.38]) {
+    const data = canvas.toDataURL("image/jpeg", quality);
+    if (data.length <= 220_000) return data;
+  }
+  throw new Error("The captured image is too large. Move closer to the camera and try again.");
+}
 
 /** Client-side mirror of registerSchema in backend/src/middleware/validate.js.
  *  The server is still the authority: this only saves a round trip. */
 function validateSignUp(v: Form): Record<string, string> {
   const f: Record<string, string> = {};
+
+  if (v.role !== "student" && v.role !== "delivery")
+    f.role = "Choose Student or Runner.";
 
   const name = v.fullName.trim();
   if (name.length < 4 || name.length > 60 || !NAME_RE.test(name))
@@ -37,9 +75,12 @@ function validateSignUp(v: Form): Record<string, string> {
 
   if (!STUDENT_ID_RE.test(v.studentId.trim()))
     f.studentId = "Use the campus format 04-2021-00456.";
+  if (v.role === "student" && !v.studentIdImage) f.studentIdImage = "Upload a clear photo of your student ID.";
+  if (v.role === "student" && !v.selfieImage) f.selfieImage = "Start the camera and capture a clear image of your face.";
 
   const pw = v.password;
   if (pw.length < 8) f.password = "Password must be at least 8 characters.";
+  else if (pw.length > 20) f.password = "Password must be 20 characters or fewer.";
   else if (new TextEncoder().encode(pw).length > 72) f.password = "Password must be 72 bytes or fewer.";
   else if (!/[A-Z]/.test(pw)) f.password = "Password needs one uppercase letter.";
   else if (!/[a-z]/.test(pw)) f.password = "Password needs one lowercase letter.";
@@ -77,12 +118,18 @@ export default function SignUp({
 }) {
   const [fullName, setFullName] = useState("");
   const [studentId, setStudentId] = useState("");
+  const [studentIdImage, setStudentIdImage] = useState("");
+  const [studentIdImageName, setStudentIdImageName] = useState("");
+  const [selfieImage, setSelfieImage] = useState("");
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [agree, setAgree] = useState(false);
   const [legalDocument, setLegalDocument] = useState<LegalDocument | null>(null);
-  const role: SignUpRole = "student";
+  const [role, setRole] = useState<SignUpRole>("student");
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -90,6 +137,58 @@ export default function SignUp({
   const [pendingVerification, setPendingVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [notice, setNotice] = useState("");
+  const [pendingApproval, setPendingApproval] = useState(false);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!cameraStream || !video) return;
+    video.srcObject = cameraStream;
+    void video.play().catch(() => setCameraError("Allow camera access in your browser, then try again."));
+    return () => {
+      video.srcObject = null;
+      cameraStream.getTracks().forEach((track) => track.stop());
+    };
+  }, [cameraStream]);
+
+  useEffect(() => {
+    if (role !== "student") {
+      setCameraStream(null);
+      setSelfieImage("");
+      setCameraError("");
+    }
+  }, [role]);
+
+  async function startCamera() {
+    setCameraError("");
+    setSelfieImage("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Live camera access requires HTTPS or localhost and a supported browser.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      setCameraStream(stream);
+      setFields((current) => ({ ...current, selfieImage: "" }));
+    } catch {
+      setCameraError("Camera access was blocked or unavailable. Allow camera permission in your browser and try again.");
+    }
+  }
+
+  function captureFace() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraError("The camera is still starting. Wait a moment and try again.");
+      return;
+    }
+    try {
+      setSelfieImage(captureVideoFrame(video));
+      setCameraError("");
+      setFields((current) => ({ ...current, selfieImage: "" }));
+      setCameraStream(null);
+    } catch (captureError) {
+      setCameraError(captureError instanceof Error ? captureError.message : "Could not capture the camera image.");
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,7 +197,7 @@ export default function SignUp({
     setFullName(normalizedName);
 
     // 1. Catch obvious mistakes locally so no request is spent on them.
-    const clientErrors = validateSignUp({ fullName: normalizedName, studentId, email, password, confirm, agree });
+    const clientErrors = validateSignUp({ role, fullName: normalizedName, studentId, email, password, confirm, agree, studentIdImage, selfieImage });
     setFields(clientErrors);
     if (Object.keys(clientErrors).length) {
       setError("Fix the highlighted fields - the request was never sent.");
@@ -123,12 +222,18 @@ export default function SignUp({
       setError(`${res.status} \u2014 ${res.error || "Failed to register account."}`);
       return;
     }
+    if (res.data?.verificationPending) {
+      setNotice(res.data.message || "Your student ID is waiting for administrator review.");
+      setPendingApproval(true);
+      setPendingVerification(false);
+      return;
+    }
 
     // 3. The App needs the whole user (id, name, role), not just the name.
     if (res.data?.verificationRequired) {
       setPendingVerification(true);
       setNotice(res.data.emailSent
-        ? `We sent a 6-digit code to ${res.data.email}. It expires in 10 minutes. Your Atlas user record will be created after you verify the code.`
+        ? `We sent a 6-digit code to ${res.data.email}. It expires in 10 minutes. After email verification, student accounts wait for an administrator to review the uploaded ID.`
         : "We couldn't send the verification email, so your account hasn't been created yet. Please contact the system administrator. Once email delivery is available, tap Send a new code.");
       return;
     }
@@ -159,10 +264,18 @@ export default function SignUp({
       role,
       agree,
       code: verificationCode,
+      studentIdImage,
+      selfieImage,
     });
     setBusy(false);
     if (!res.ok) {
       setError(`${res.status} — ${res.error || "Could not verify this email."}`);
+      return;
+    }
+    if (res.data?.verificationPending) {
+      setNotice(res.data.message || "Your student ID is waiting for administrator review.");
+      setPendingApproval(true);
+      setPendingVerification(false);
       return;
     }
     const token = res.data?.token;
@@ -185,6 +298,18 @@ export default function SignUp({
       return;
     }
     setNotice(res.message || "A new verification code was sent.");
+  }
+
+  if (pendingApproval) {
+    return (
+      <div className="min-h-screen bg-[#FDEFE6] p-4 sm:p-8 lg:p-10">
+        <div className="mx-auto max-w-xl rounded-[32px] bg-white p-8 shadow-2xl sm:p-12">
+          <h1 className="text-3xl font-extrabold text-slate-900">Student ID under review</h1>
+          <p className="mt-4 text-slate-600">{notice}</p>
+          <button type="button" onClick={onBackToLogin} className="mt-7 w-full rounded-2xl bg-emerald-500 py-4 font-bold text-white">Back to Log In</button>
+        </div>
+      </div>
+    );
   }
 
   if (pendingVerification) {
@@ -235,6 +360,19 @@ export default function SignUp({
           </p>
 
           <label className="mt-6 block text-xs font-bold tracking-wider text-slate-500">
+            ACCOUNT TYPE
+          </label>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as SignUpRole)}
+            className={inputClass(fields.role)}
+          >
+            <option value="student">Student — Post errands and requests</option>
+            <option value="delivery">Runner — Accept and complete errands</option>
+          </select>
+          <FieldError msg={fields.role} />
+
+          <label className="mt-4 block text-xs font-bold tracking-wider text-slate-500">
             FULL NAME
           </label>
           <input
@@ -266,6 +404,54 @@ export default function SignUp({
           <FieldError msg={fields.studentId} />
           <p className="mt-1.5 text-xs text-slate-400">Use numbers and hyphens only, like 04-2021-00456.</p>
 
+          {role === "student" && <>
+            <label className="mt-4 block text-xs font-bold tracking-wider text-slate-500">UPLOAD STUDENT ID</label>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                setStudentIdImage("");
+                setStudentIdImageName("");
+                if (!file) return;
+                if (!file.type.startsWith("image/")) {
+                  setFields((current) => ({ ...current, studentIdImage: "Choose an image file." }));
+                  return;
+                }
+                try {
+                  const compressed = await compressImageAsJpeg(file);
+                  setStudentIdImage(compressed);
+                  setStudentIdImageName(file.name);
+                  setFields((current) => ({ ...current, studentIdImage: "" }));
+                } catch (imageError) {
+                  setFields((current) => ({ ...current, studentIdImage: imageError instanceof Error ? imageError.message : "Could not read this image." }));
+                }
+              }}
+              className={inputClass(fields.studentIdImage)}
+            />
+            <p className="mt-1.5 text-xs text-slate-400">A clear photo is converted to a smaller JPEG and shown only to the administrator for verification.</p>
+            {studentIdImageName && <p className="mt-1 text-xs text-emerald-700">Selected: {studentIdImageName}</p>}
+            <FieldError msg={fields.studentIdImage} />
+
+            <label className="mt-4 block text-xs font-bold tracking-wider text-slate-500">LIVE FACE CAPTURE</label>
+            <p className="mt-1.5 text-xs text-slate-400">Allow camera access and capture your face now. An administrator will compare this image manually with your student ID.</p>
+            {selfieImage ? (
+              <div className="mt-3">
+                <img src={selfieImage} alt="Captured face for manual student ID review" className="max-h-64 w-full rounded-xl bg-slate-100 object-contain" />
+                <button type="button" onClick={startCamera} className="mt-2 text-sm font-semibold text-emerald-700 underline">Retake using camera</button>
+              </div>
+            ) : cameraStream ? (
+              <div className="mt-3">
+                <video ref={videoRef} autoPlay playsInline muted aria-label="Live camera preview" className="max-h-72 w-full rounded-xl bg-slate-900 object-cover" />
+                <button type="button" onClick={captureFace} className="mt-3 w-full rounded-xl bg-emerald-600 px-4 py-3 font-bold text-white">Capture face</button>
+              </div>
+            ) : (
+              <button type="button" onClick={startCamera} className={`mt-2 w-full rounded-xl border px-5 py-3.5 font-semibold text-emerald-800 transition hover:bg-emerald-50 ${fields.selfieImage ? "border-rose-400" : "border-slate-200"}`}>Open camera</button>
+            )}
+            {cameraError && <p className="mt-2 text-sm font-medium text-rose-600">{cameraError}</p>}
+            <FieldError msg={fields.selfieImage} />
+          </>}
+
           <label className="mt-4 block text-xs font-bold tracking-wider text-slate-500">
             PHINMA EMAIL
           </label>
@@ -288,6 +474,8 @@ export default function SignUp({
               type={show ? "text" : "password"}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              minLength={8}
+              maxLength={20}
               autoComplete="new-password"
               className={`${inputClass(fields.password)} pr-14`}
             />
@@ -303,7 +491,7 @@ export default function SignUp({
             <FieldError msg={fields.password} />
           ) : (
             <p className="mt-1.5 text-xs text-slate-400">
-              At least 8 characters with an uppercase letter, a lowercase letter, a number and a symbol.
+              8–20 characters with an uppercase letter, a lowercase letter, a number and a symbol.
             </p>
           )}
 
@@ -314,6 +502,8 @@ export default function SignUp({
             type={show ? "text" : "password"}
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
+            minLength={8}
+            maxLength={20}
             autoComplete="new-password"
             className={inputClass(fields.confirm)}
           />

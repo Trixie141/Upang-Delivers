@@ -23,6 +23,10 @@ const userSchema = new mongoose.Schema(
       // sparse unique: many nulls allowed (admins), but no duplicates
       match: [/^\d{2}-\d{4}-\d{3,6}$/, "Use the campus format 03-2425-045935."],
     },
+    studentIdImage: { type: String, select: false, default: null, maxlength: 220_000 },
+    selfieImage: { type: String, select: false, default: null, maxlength: 220_000 },
+    idVerificationStatus: { type: String, enum: ["not_required", "pending", "approved", "rejected"], default: "not_required" },
+    idVerificationReason: { type: String, default: "", maxlength: 120 },
     email: {
       type: String,
       required: [true, "Email is required."],
@@ -106,6 +110,8 @@ userSchema.methods.toSafeJSON = function toSafeJSON() {
     spot: this.spot ?? "",
     role: this.role,
     status: this.status,
+    idVerificationStatus: this.idVerificationStatus,
+    idVerificationReason: this.idVerificationReason,
     emailVerified: this.emailVerified !== false,
     lastLoginAt: this.lastLoginAt ?? null,
     available: this.available !== false,

@@ -31,6 +31,8 @@ type LoginUser = {
 type AuthPayload = {
   token?: string;
   user?: LoginUser;
+  mfaRequired?: boolean;
+  deliveryMode?: "email" | "console";
   verificationRequired?: boolean;
   message?: string;
   emailSent?: boolean;
@@ -75,6 +77,8 @@ export const api = {
   /** POST /api/auth/login or /api/auth/admin/login */
   login: (payload: LoginPayload, opts?: { adminPortal?: boolean }) =>
     authRequest(opts?.adminPortal ? "/auth/admin/login" : "/auth/login", payload),
+  verifyAdminLogin: (email: string, code: string) =>
+    authRequest("/auth/admin/login/verify", { email, code }),
 
   /**
    * POST /api/auth/register
@@ -100,6 +104,8 @@ export const api = {
     role: ApiRole;
     agree: boolean;
     code: string;
+    studentIdImage?: string;
+    selfieImage?: string;
   }) => authRequest("/auth/complete-registration", payload),
   verifyEmail: (email: string, code: string) => authRequest("/auth/verify-email", { email, code }),
   resendVerification: (email: string) => request("/auth/resend-verification", "POST", null, { email }),
@@ -158,11 +164,14 @@ export const api = {
     if (title.length < 6) errors.title = "Title must be at least 6 characters.";
     else if (title.length > 90) errors.title = "Title must be 90 characters or fewer.";
     else if (hasMarkup(title)) errors.title = MARKUP;
+    else if (!/^[\p{L} ]+$/u.test(title)) errors.title = "Use letters and spaces only.";
 
     const instructions = payload.instructions.trim();
     if (instructions.length < 10) errors.instructions = "Give the runner at least 10 characters of instructions.";
     else if (instructions.length > 600) errors.instructions = "Instructions are too long.";
     else if (hasMarkup(instructions)) errors.instructions = MARKUP;
+    else if (!/[\p{L}\p{N}]/u.test(instructions)) errors.instructions = "Instructions must include at least one letter or number.";
+    else if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(instructions)) errors.instructions = "Instructions contain unsupported characters.";
 
     if (!["Food Run", "Printing", "Queuing", "Deliveries", "Others"].includes(payload.category))
       errors.category = "Choose a valid category.";
@@ -216,6 +225,11 @@ export const api = {
   /** POST /api/errands/:id/accept - a runner accepts an open errand */
   acceptErrand: (token: string, id: string) => request(`/errands/${id}/accept`, "POST", token),
 
+  /** Chat between the requester and the assigned runner (messages max 500 characters). */
+  getErrandMessages: (token: string, id: string) => request(`/errands/${id}/messages`, "GET", token),
+  sendErrandMessage: (token: string, id: string, message: string) =>
+    request(`/errands/${id}/messages`, "POST", token, { message }),
+
   /** PATCH /api/errands/:id/status - update progress (in_progress, picked_up, done, ...) */
   updateErrandStatus: (
     token: string,
@@ -241,6 +255,7 @@ export const api = {
 
   /** GET /api/admin/users */
   getUsers: (token: string) => request("/admin/users", "GET", token),
+  getStudentIdImage: (token: string, id: string) => request(`/admin/users/${id}/student-id`, "GET", token),
 
   /** GET /api/admin/users/hashes - proof of bcrypt hashing, truncated digests only */
   getUserHashes: (token: string) => request("/admin/users/hashes", "GET", token),

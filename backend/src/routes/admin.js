@@ -18,6 +18,14 @@ router.get("/users", async (req, res) => {
   res.json({ users });
 });
 
+/* GET /api/admin/users/:id/student-id — private ID and selfie images are returned only to admins on demand. */
+router.get("/users/:id/student-id", validObjectId(), async (req, res) => {
+  const user = await User.findOne({ _id: req.params.id, role: "student" })
+    .select("+studentIdImage +selfieImage studentId");
+  if (!user?.studentIdImage || !user?.selfieImage) return res.status(404).json({ error: "Student ID or selfie image not found." });
+  res.json({ studentId: user.studentId, studentIdImage: user.studentIdImage, selfieImage: user.selfieImage });
+});
+
 /* GET /api/admin/users/hashes — proof of hashing (digests truncated) */
 router.get("/users/hashes", async (req, res) => {
   const rows = await User.find().select("+passwordHash").lean();
@@ -109,10 +117,19 @@ router.patch("/users/:id/status", validObjectId(), async (req, res) => {
     if (!existing) return res.status(404).json({ error: "Resource not found." });
     if (existing.role === "admin")
       return res.status(403).json({ error: "Administrator accounts cannot be approved, rejected, suspended, or reactivated here." });
+    if (status === "active" && existing.idVerificationStatus === "rejected")
+      return res.status(409).json({ error: "This student ID was rejected and cannot be reactivated without a new verification process." });
+    const idRejectionReasons = ["ID image is unclear or unreadable", "Name does not match the account", "Student ID number does not match", "Invalid or expired student ID", "Uploaded document is not a student ID", "Other — contact the administrator"];
+    if (existing.role === "student" && existing.idVerificationStatus === "pending" && status === "suspended" && !idRejectionReasons.includes(reason))
+      return res.status(422).json({ error: "Choose a valid student ID rejection reason." });
     if (status === "active" && existing.emailVerified === false)
       return res.status(409).json({ error: "This user must verify their email before activation." });
     const wasPending = existing.status === "pending";
     existing.status = status;
+    if (existing.role === "student" && existing.idVerificationStatus === "pending") {
+      existing.idVerificationStatus = status === "active" ? "approved" : "rejected";
+      existing.idVerificationReason = status === "active" ? "" : reason;
+    }
     const user = await existing.save();
     audit(req.user.id, "PATCH", `/api/admin/users/${req.params.id}/status`, 200,
       `${wasPending && status === "active" ? "Approved account" : wasPending && status === "suspended" ? "Rejected account" : `Set account status to ${status}`}${reason ? `: ${reason}` : ""}`, req.ip);

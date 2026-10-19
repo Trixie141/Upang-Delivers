@@ -16,7 +16,7 @@ const EMAIL = z
 export const PASSWORD = z
   .string()
   .min(8, "Password must be at least 8 characters.")
-  .max(128, "Password must be 128 characters or fewer.")
+  .max(20, "Password must be 20 characters or fewer.")
   .regex(/[A-Z]/, "Password needs one uppercase letter.")
   .regex(/[a-z]/, "Password needs one lowercase letter.")
   .regex(/\d/, "Password needs one number.")
@@ -29,6 +29,21 @@ export const PASSWORD = z
 // Same forbidden-character rule for every free-text field.
 const noMarkup = (schema) =>
   schema.refine((v) => !/[<>]/.test(v), "Must not contain the characters < or >.");
+
+const isValidErrandDeadline = (value) => {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) return false;
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Manila",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value);
+  const minutes = hour * 60 + minute;
+  return minutes >= 7 * 60 + 30 && minutes <= 18 * 60;
+};
 
 const FULL_NAME = z
   .string()
@@ -97,9 +112,22 @@ export const emailCodeSchema = z.object({
   code: z.string().regex(/^\d{6}$/, "Enter the 6-digit code from your email."),
 });
 
-export const completeRegistrationSchema = registerSchema.and(
-  z.object({ code: emailCodeSchema.shape.code }),
-);
+export const completeRegistrationSchema = registerSchema
+  .and(z.object({
+    code: emailCodeSchema.shape.code,
+    studentIdImage: z.string().max(220_000, "Student ID photo is too large. Choose a smaller image.").optional().default(""),
+    selfieImage: z.string().max(220_000, "Camera capture is too large. Try again.").optional().default(""),
+  }))
+  .superRefine((value, ctx) => {
+    if (value.role === "student") {
+      if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(value.studentIdImage)) {
+        ctx.addIssue({ path: ["studentIdImage"], code: "custom", message: "Upload a clear photo of your student ID (JPEG image)." });
+      }
+      if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(value.selfieImage)) {
+        ctx.addIssue({ path: ["selfieImage"], code: "custom", message: "Capture a clear image of your face using the signup camera (JPEG image)." });
+      }
+    }
+  });
 
 export const forgotPasswordSchema = z.object({ email: EMAIL });
 
@@ -124,14 +152,17 @@ export const errandSchema = z.object({
       .string()
       .trim()
       .min(6, "Title must be at least 6 characters.")
-      .max(90, "Title must be 90 characters or fewer."),
+      .max(90, "Title must be 90 characters or fewer.")
+      .regex(/^[\p{L} ]+$/u, "Use letters and spaces only."),
   ),
   instructions: noMarkup(
     z
       .string()
       .trim()
       .min(10, "Give the runner at least 10 characters of instructions.")
-      .max(600, "Instructions are too long."),
+      .max(600, "Instructions are too long.")
+      .refine((value) => /[\p{L}\p{N}]/u.test(value), "Instructions must include at least one letter or number.")
+      .refine((value) => !/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/u.test(value), "Instructions contain unsupported characters."),
   ),
   category: z.enum(["Food Run", "Printing", "Queuing", "Deliveries", "Others"]),
   pickup: noMarkup(z.string().trim().min(3, "Pick-up location is required.").max(80)),
@@ -151,7 +182,10 @@ export const errandSchema = z.object({
     z.boolean({ invalid_type_error: "cod must be true or false." }).default(false),
   ),
   paymentMethod: z.enum(["cash_on_delivery", "e_wallet", "bank_transfer"]).default("cash_on_delivery"),
-  deadline: noMarkup(z.string().trim().min(3, "Deadline is required.").max(60)),
+  deadline: noMarkup(
+    z.string().trim().min(3, "Deadline is required.").max(60)
+      .refine((value) => isValidErrandDeadline(value), "Choose a future deadline between 7:30 AM and 6:00 PM."),
+  ),
   contactPhone: z
     .string()
     .trim()
