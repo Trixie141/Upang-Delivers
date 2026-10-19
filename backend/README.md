@@ -134,26 +134,20 @@ expire after 10 minutes. MongoDB's TTL index removes expired code records
 automatically; the application also checks expiry itself. Atlas stores only
 these small temporary records, not the outgoing email or code in plaintext.
 
-Email delivery uses Nodemailer with SMTP and is independent of MongoDB Atlas.
-For Brevo, retrieve the SMTP login and generate an SMTP key in Brevo's SMTP
-settings. Use an authenticated sender address in `EMAIL_FROM`. The SMTP key is
-not the Brevo API key. Set these values in `backend/.env` for local development,
-or in the environment settings of the host running the backend. Never put them
-in the frontend or commit them:
+Email delivery uses Brevo's transactional email API over HTTPS. This avoids
+Render's free-service restriction on outbound SMTP ports. Generate a Brevo API
+key under **Settings → SMTP & API → API keys**, and use a verified sender address
+in `EMAIL_FROM`. This API key is different from the SMTP key. Set these values
+in `backend/.env` for local development or in the environment settings of the
+host running the backend. Never put them in the frontend or commit them:
 
 ```dotenv
-SMTP_HOST=smtp-relay.brevo.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your-brevo-smtp-login
-SMTP_PASS=your-brevo-smtp-key
+BREVO_API_KEY=your-brevo-api-key
 EMAIL_FROM=Upang Delivers <your-verified-sender@your-domain.com>
 ```
 
-Brevo SMTP commonly uses port 587 with STARTTLS (`SMTP_SECURE=false`); port 465
-uses implicit TLS (`SMTP_SECURE=true`). The Vercel project serves the Vite
-frontend, so configure these secrets on the backend host instead. The frontend
-must point to that backend through `VITE_API_BASE_URL`.
+Configure these secrets on the backend host (Render), not in the Vercel
+frontend. The frontend must point to that backend through `VITE_API_BASE_URL`.
 
 ## Accounts (after `npm run seed`)
 
