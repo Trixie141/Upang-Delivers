@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { Trash2, Clock, MapPin, AlertCircle, RefreshCw, UserCheck, Star, Navigation } from "lucide-react";
 import { api } from "../lib/api";
 import { formatDeadline, formatPaymentMethod } from "../lib/format";
+import ErrandChat from "../components/ErrandChat";
 
 interface ErrandRequest {
   _id: string;
@@ -469,6 +470,16 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
                     </button>
                   )}
                 </div>
+
+                {hasRunner && (
+                  <ErrandChat
+                    token={token}
+                    errandId={req._id}
+                    currentUserId={userId}
+                    otherName={runnerName || "your runner"}
+                    canSend={["in_progress", "picked_up", "review"].includes(req.status)}
+                  />
+                )}
 
                 {/* Review section — only for completed errands with a runner assigned */}
                 {req.status === "done" && runnerName && reviewState?.loaded && (

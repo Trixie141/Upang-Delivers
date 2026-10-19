@@ -1,19 +1,15 @@
-import { useEffect, useState } from "react";
-import { ArrowLeft, Eye, EyeOff, Package, ShieldAlert, Gauge } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, Eye, EyeOff, Package } from "lucide-react";
 import { api } from "../lib/api";
-
-type ApiRole = "student" | "delivery";
 
 /** What the server returns for a signed-in user (see toSafeJSON in the backend User model). */
 type SessionUser = { id: string; name: string; role: string };
 
 export default function Login({
-  role,
   onBack,
   onLogin,
   onSignUp,
 }: {
-  role: ApiRole;
   onBack: () => void;
   onLogin: (token: string, user: SessionUser) => void;
   onSignUp: () => void;
@@ -25,7 +21,6 @@ export default function Login({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
-  const [limit, setLimit] = useState(api.rateState(`/auth/login:${email.toLowerCase()}`));
   const [recoveryMode, setRecoveryMode] = useState<"email" | "reset" | null>(null);
   const [recoveryCode, setRecoveryCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -33,14 +28,6 @@ export default function Login({
   const [verificationNeeded, setVerificationNeeded] = useState(false);
   const [verificationCode, setVerificationCode] = useState("");
   const [verificationNotice, setVerificationNotice] = useState("");
-
-  useEffect(() => {
-    const t = setInterval(
-      () => setLimit(api.rateState(`/auth/login:${email.trim().toLowerCase()}`)),
-      500,
-    );
-    return () => clearInterval(t);
-  }, [email]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,12 +44,12 @@ export default function Login({
     }
 
     // 2. Perform Login Request
-      const res = await api.login({ email, password, requestedRole: role });
+      const res = await api.login({ email, password });
     setBusy(false);
 
     if (!res.ok) {
       setFields(res.fields ?? {});
-      setError(`${res.status} \u2014 ${res.error}`);
+      setError(res.error || "Could not log in. Please check your details and try again.");
       setVerificationNeeded(res.code === "EMAIL_NOT_VERIFIED");
       return;
     }
@@ -87,7 +74,7 @@ export default function Login({
     const res = await api.resendVerification(email.trim().toLowerCase());
     setBusy(false);
     if (!res.ok) {
-      setError(`${res.status} — ${res.error || "Could not send a verification code."}`);
+      setError(res.error || "Could not send a verification code. Please try again.");
       return;
     }
     setVerificationNotice(res.message || "A new verification code was sent.");
@@ -100,7 +87,7 @@ export default function Login({
     const res = await api.verifyEmail(email.trim().toLowerCase(), verificationCode);
     setBusy(false);
     if (!res.ok) {
-      setError(`${res.status} — ${res.error || "Could not verify this email."}`);
+      setError(res.error || "Could not verify this email. Please try again.");
       return;
     }
     const token = res.data?.token;
@@ -120,7 +107,7 @@ export default function Login({
     const res = await api.requestPasswordReset(email.trim().toLowerCase());
     setBusy(false);
     if (!res.ok) {
-      setError(`${res.status} — ${res.error || "Could not request a password reset."}`);
+      setError(res.error || "Could not request a password reset. Please try again.");
       return;
     }
     setRecoveryMode("reset");
@@ -134,7 +121,7 @@ export default function Login({
     const res = await api.resetPassword(email.trim().toLowerCase(), recoveryCode.trim(), newPassword);
     setBusy(false);
     if (!res.ok) {
-      setError(`${res.status} — ${res.error || "Could not reset the password."}`);
+      setError(res.error || "Could not reset the password. Please try again.");
       return;
     }
     setRecoveryMode(null);
@@ -166,10 +153,10 @@ export default function Login({
               <label className="block text-xs font-bold tracking-wider text-slate-500">6-DIGIT CODE</label>
               <input inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={recoveryCode} onChange={(e) => setRecoveryCode(e.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="123456" className="w-full rounded-xl border border-slate-200 px-5 py-4 tracking-[0.3em] text-slate-800 outline-none focus:border-emerald-500" />
               <label className="block text-xs font-bold tracking-wider text-slate-500">NEW PASSWORD</label>
-              <input type="password" autoComplete="new-password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full rounded-xl border border-slate-200 px-5 py-4 text-slate-800 outline-none focus:border-emerald-500" />
-              <p className="text-xs text-slate-400">At least 8 characters, with uppercase, lowercase, number and symbol.</p>
+              <input type="password" autoComplete="new-password" minLength={8} maxLength={20} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="w-full rounded-xl border border-slate-200 px-5 py-4 text-slate-800 outline-none focus:border-emerald-500" />
+              <p className="text-xs text-slate-400">8–20 characters, with uppercase, lowercase, number and symbol.</p>
               {error && <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">{error}</p>}
-              <button type="submit" disabled={busy || recoveryCode.length !== 6 || !newPassword} className="w-full rounded-2xl bg-emerald-500 py-4 font-bold text-white disabled:opacity-60">{busy ? "Updating..." : "Save New Password"}</button>
+              <button type="submit" disabled={busy || recoveryCode.length !== 6 || newPassword.length < 8 || newPassword.length > 20} className="w-full rounded-2xl bg-emerald-500 py-4 font-bold text-white disabled:opacity-60">{busy ? "Updating..." : "Save New Password"}</button>
               <button type="button" disabled={busy} onClick={() => { setRecoveryMode("email"); setRecoveryNotice(""); setError(""); }} className="w-full text-sm font-bold text-emerald-700 hover:underline">Send another code</button>
             </form>
           )}
@@ -256,8 +243,8 @@ export default function Login({
           </div>
 
           {error && (
-            <p className="mt-5 flex items-start gap-3 rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">
-              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+            <p className="mt-5 rounded-xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">
+              {error}
             </p>
           )}
           {verificationNeeded && (
@@ -274,15 +261,6 @@ export default function Login({
           {recoveryNotice && (
             <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{recoveryNotice}</p>
           )}
-
-          <div className="mt-5 flex items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
-            <Gauge className="h-4 w-4 text-slate-400" />
-            Rate limit: <span className="font-bold text-slate-700">{limit.remaining}</span> of{" "}
-            {api.LIMIT} attempts left in this 60s window
-            {limit.retryIn > 0 && (
-              <span className="font-bold text-rose-500">&bull; locked {limit.retryIn}s</span>
-            )}
-          </div>
 
           <button
             type="submit"

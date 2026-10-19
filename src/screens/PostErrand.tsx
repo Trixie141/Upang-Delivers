@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Sandwich, Printer, Users, MoreHorizontal, ShieldCheck, AlertCircle } from "lucide-react";
 import { useStore } from "../store";
 import { api } from "@/lib/api";
+import { CAMPUS_ROOM_GROUPS } from "@/lib/campusRooms";
 
 const categories = [
   { key: "Food Run", icon: Sandwich, tint: "text-emerald-600" },
@@ -30,6 +31,7 @@ export default function PostErrand({
   const [instructions, setInstructions] = useState("");
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
+  const [otherDropoff, setOtherDropoff] = useState("");
   const [reward, setReward] = useState("50");
   const [paymentMethod, setPaymentMethod] = useState("cash_on_delivery");
   const [deadline, setDeadline] = useState(deadlines[0]);
@@ -43,7 +45,9 @@ export default function PostErrand({
   setBanner("");
 
   const payload = {
-    title, instructions, pickup, dropoff, reward, category, deadline,
+    title, instructions, pickup,
+    dropoff: dropoff === "Others" ? otherDropoff.trim() : dropoff,
+    reward, category, deadline,
     paymentMethod,
     cod: paymentMethod === "cash_on_delivery",
   };
@@ -79,6 +83,7 @@ export default function PostErrand({
   setInstructions("");
   setPickup("");
   setDropoff("");
+  setOtherDropoff("");
   setPage("requests");
 }
 
@@ -173,23 +178,53 @@ export default function PostErrand({
                 PICK-UP LOCATION
               </label>
               <input
+                type="text"
+                name="pickup"
+                required
+                minLength={3}
+                maxLength={80}
+                pattern="[^<>]{3,80}"
+                title="Enter 3 to 80 characters without < or >."
                 value={pickup}
                 onChange={(e) => setPickup(e.target.value)}
+                onBlur={() => setPickup((value) => value.trim())}
                 placeholder="e.g., PHINMA Canteen"
                 className={`mt-2 ${box("pickup")}`}
               />
               {err("pickup")}
+              <p className="mt-1 text-xs text-slate-400">Enter 3–80 characters. The location cannot be blank or contain &lt; or &gt;.</p>
             </div>
             <div>
               <label className="text-xs font-bold tracking-[0.12em] text-slate-400">
                 DROP-OFF LOCATION
               </label>
-              <input
+              <select
                 value={dropoff}
                 onChange={(e) => setDropoff(e.target.value)}
-                placeholder="e.g., IT Building - Room 405"
-                className={`mt-2 ${box("dropoff")}`}
-              />
+                className={`mt-2 ${box("dropoff")} bg-white`}
+                required
+              >
+                <option value="" disabled>Select a campus room</option>
+                {CAMPUS_ROOM_GROUPS.map((group) => (
+                  <optgroup key={group.building} label={group.building}>
+                    {group.rooms.map((room) => (
+                      <option key={room} value={room}>{room}</option>
+                    ))}
+                  </optgroup>
+                ))}
+                <option value="Others">Others</option>
+              </select>
+              <p className="mt-1 text-xs text-slate-400">Room list is an estimate. Choose Others if your location is not listed.</p>
+              {dropoff === "Others" && (
+                <input
+                  value={otherDropoff}
+                  onChange={(e) => setOtherDropoff(e.target.value)}
+                  placeholder="Enter another campus drop-off location"
+                  maxLength={80}
+                  className={`mt-2 ${box("dropoff")}`}
+                  required
+                />
+              )}
               {err("dropoff")}
             </div>
           </div>

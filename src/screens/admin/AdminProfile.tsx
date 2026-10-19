@@ -156,6 +156,10 @@ export default function AdminProfile({
   async function changePassword(e: React.FormEvent) {
     e.preventDefault();
     setPasswordMsg(null);
+    if (passwordForm.next.length < 8 || passwordForm.next.length > 20) {
+      setPasswordMsg({ ok: false, text: "New password must be 8 to 20 characters." });
+      return;
+    }
     if (passwordForm.next !== passwordForm.confirm) {
       setPasswordMsg({ ok: false, text: "The new passwords do not match." });
       return;
@@ -349,10 +353,11 @@ export default function AdminProfile({
                   <input type="password" autoComplete="current-password" required value={passwordForm.current} onChange={(e) => setPasswordForm((f) => ({ ...f, current: e.target.value }))} className={inputEdit("currentPassword")} />
                 </Field>
                 <Field label="NEW PASSWORD">
-                  <input type="password" autoComplete="new-password" required minLength={8} value={passwordForm.next} onChange={(e) => setPasswordForm((f) => ({ ...f, next: e.target.value }))} className={inputEdit("newPassword")} />
+                  <input type="password" autoComplete="new-password" required minLength={8} maxLength={20} value={passwordForm.next} onChange={(e) => setPasswordForm((f) => ({ ...f, next: e.target.value }))} className={inputEdit("newPassword")} />
+                  <p className="mt-1 text-xs text-slate-400">Use 8–20 characters.</p>
                 </Field>
                 <Field label="CONFIRM NEW PASSWORD">
-                  <input type="password" autoComplete="new-password" required minLength={8} value={passwordForm.confirm} onChange={(e) => setPasswordForm((f) => ({ ...f, confirm: e.target.value }))} className={inputEdit("confirm")} />
+                  <input type="password" autoComplete="new-password" required minLength={8} maxLength={20} value={passwordForm.confirm} onChange={(e) => setPasswordForm((f) => ({ ...f, confirm: e.target.value }))} className={inputEdit("confirm")} />
                 </Field>
               </div>
               <button type="submit" disabled={changingPassword || loading} className="mt-5 rounded-2xl bg-emerald-500 px-7 py-3.5 font-bold text-white shadow-md transition hover:bg-emerald-600 disabled:opacity-60">

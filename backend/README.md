@@ -135,23 +135,25 @@ automatically; the application also checks expiry itself. Atlas stores only
 these small temporary records, not the outgoing email or code in plaintext.
 
 Email delivery uses Nodemailer with SMTP and is independent of MongoDB Atlas.
-For a Gmail sender, enable 2-Step Verification and create an app password if the
-account allows it. Managed school accounts may require an administrator to enable
-SMTP relay or may not allow app passwords. Set these values in `backend/.env`;
-never commit or share the SMTP password:
+For Brevo, retrieve the SMTP login and generate an SMTP key in Brevo's SMTP
+settings. Use an authenticated sender address in `EMAIL_FROM`. The SMTP key is
+not the Brevo API key. Set these values in `backend/.env` for local development,
+or in the environment settings of the host running the backend. Never put them
+in the frontend or commit them:
 
 ```dotenv
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=465
-SMTP_SECURE=true
-SMTP_USER=your-app-sender@gmail.com
-SMTP_PASS=your-16-character-app-password
-EMAIL_FROM=Upang Delivers <your-app-sender@gmail.com>
+SMTP_HOST=smtp-relay.brevo.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-brevo-smtp-login
+SMTP_PASS=your-brevo-smtp-key
+EMAIL_FROM=Upang Delivers <your-verified-sender@your-domain.com>
 ```
 
-Use the same mailbox in `SMTP_USER` and `EMAIL_FROM` for Gmail SMTP. Port 465 uses
-implicit TLS; port 587 typically uses STARTTLS (`SMTP_SECURE=false`). Test delivery
-with the provider's own account settings before using it for student accounts.
+Brevo SMTP commonly uses port 587 with STARTTLS (`SMTP_SECURE=false`); port 465
+uses implicit TLS (`SMTP_SECURE=true`). The Vercel project serves the Vite
+frontend, so configure these secrets on the backend host instead. The frontend
+must point to that backend through `VITE_API_BASE_URL`.
 
 ## Accounts (after `npm run seed`)
 

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Clock, MapPin, AlertCircle, RefreshCw, ChevronRight, Navigation, Phone, ImagePlus } from "lucide-react";
 import { api } from "../lib/api";
 import { formatDeadline, formatPaymentMethod } from "../lib/format";
+import ErrandChat from "../components/ErrandChat";
 
 interface GigItem {
   _id: string;
@@ -450,6 +451,14 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
                     )}
                   </div>
                 </div>
+
+                <ErrandChat
+                  token={token}
+                  errandId={gig._id}
+                  currentUserId={userId}
+                  otherName={requesterName}
+                  canSend={["in_progress", "picked_up", "review"].includes(gig.status)}
+                />
 
                 {gig.status === "done" && (
                   <div className="mt-4 border-t border-slate-100 pt-4 text-sm">

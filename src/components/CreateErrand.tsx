@@ -1,12 +1,33 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PlusCircle, AlertCircle } from "lucide-react";
 import { api } from "../lib/api";
+import { CAMPUS_ROOM_GROUPS } from "../lib/campusRooms";
 
-// Formats a Date for the `min` attribute of a datetime-local input
-// e.g. "2026-09-21T17:00"
-const toLocalInputValue = (d: Date) => {
+const toLocalDateValue = (d: Date) => {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+const TIME_SLOTS = Array.from({ length: 22 }, (_, i) => {
+  const totalMinutes = 7 * 60 + 30 + i * 30;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const value = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+  const label = `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours < 12 ? "AM" : "PM"}`;
+  return { value, label };
+});
+
+const nextAvailableDate = () => {
+  const now = new Date();
+  const lastSlot = TIME_SLOTS[TIME_SLOTS.length - 1].value;
+  const lastSlotTime = new Date(`${toLocalDateValue(now)}T${lastSlot}`);
+  if (now >= lastSlotTime) now.setDate(now.getDate() + 1);
+  return toLocalDateValue(now);
+};
+
+const isCampusServiceOpen = (now = new Date()) => {
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  return minutes >= 7 * 60 + 30 && minutes <= 18 * 60;
 };
 
 // Must match the enum in backend validate.js and the Errand model
@@ -34,6 +55,16 @@ export default function CreateErrand({
   const [loading, setLoading] = useState(false);
   const [banner, setBanner] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
+  const [otherDropoff, setOtherDropoff] = useState("");
+  const [preferredDate, setPreferredDate] = useState(nextAvailableDate);
+  const [preferredTime, setPreferredTime] = useState("");
+  const [serviceOpen, setServiceOpen] = useState(isCampusServiceOpen);
+
+  useEffect(() => {
+    const updateServiceHours = () => setServiceOpen(isCampusServiceOpen());
+    const timer = window.setInterval(updateServiceHours, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -47,14 +78,30 @@ export default function CreateErrand({
     setBanner("");
     setFields({});
 
-    // Deadline must be a real date/time in the future before we convert it
-    const deadlineDate = new Date(formData.deadline);
-    if (!formData.deadline || isNaN(deadlineDate.getTime())) {
-      setFields({ deadline: "Pick a valid deadline date and time." });
+    if (!isCampusServiceOpen()) {
+      setServiceOpen(false);
+      setBanner("Errand posting is closed. You can post between 7:30 AM and 6:00 PM.");
       return;
     }
-    if (deadlineDate.getTime() <= Date.now()) {
-      setFields({ deadline: "Deadline must be in the future." });
+
+    const selectedDateTime = preferredDate && preferredTime
+      ? new Date(`${preferredDate}T${preferredTime}`)
+      : new Date(NaN);
+    const dateTimeLocal = `${preferredDate}T${preferredTime}`;
+    setFormData((current) => ({ ...current, deadline: dateTimeLocal }));
+
+    // Deadline must be a real date/time in the future before we convert it
+    if (!preferredDate || !preferredTime || isNaN(selectedDateTime.getTime())) {
+      setFields({ deadline: "Choose a valid date and preferred time." });
+      return;
+    }
+    if (selectedDateTime.getTime() <= Date.now()) {
+      setFields({ deadline: "Choose a future date and time." });
+      return;
+    }
+    const slot = TIME_SLOTS.some((item) => item.value === preferredTime);
+    if (!slot) {
+      setFields({ deadline: "Preferred time must be between 7:30 AM and 6:00 PM." });
       return;
     }
     if (!/^\d{11}$/.test(formData.contactPhone)) {
@@ -64,8 +111,9 @@ export default function CreateErrand({
 
     const payload = {
       ...formData,
+      dropoff: formData.dropoff === "Others" ? otherDropoff.trim() : formData.dropoff,
       reward: Number(formData.reward),
-      deadline: deadlineDate.toISOString(),
+      deadline: selectedDateTime.toISOString(),
     };
 
     // Same rules the backend enforces, checked before sending
@@ -113,6 +161,12 @@ export default function CreateErrand({
         </div>
       )}
 
+      {!serviceOpen && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-800" role="status">
+          Errand posting is currently closed. You can post errands between 7:30 AM and 6:00 PM.
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className={label}>Errand Title</label>
@@ -122,12 +176,15 @@ export default function CreateErrand({
             required
             minLength={6}
             maxLength={90}
+            pattern="[\p{L} ]{6,90}"
+            title="Use 6 to 90 letters and spaces only."
             placeholder="e.g., Pick up printed handouts at Main Library"
             value={formData.title}
             onChange={handleChange}
             className={box("title")}
           />
           {err("title")}
+          <p className="mt-1 text-xs text-slate-400">Use 6–90 letters and spaces only.</p>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -175,28 +232,52 @@ export default function CreateErrand({
               required
               minLength={3}
               maxLength={80}
+              pattern="[^<>]{3,80}"
+              title="Enter 3 to 80 characters without < or >."
               placeholder="e.g., Campus Bookstore"
               value={formData.pickup}
               onChange={handleChange}
+              onBlur={() => setFormData((current) => ({ ...current, pickup: current.pickup.trim() }))}
               className={box("pickup")}
             />
             {err("pickup")}
+            <p className="mt-1 text-xs text-slate-400">Enter 3–80 characters. The location cannot be blank or contain &lt; or &gt;.</p>
           </div>
 
           <div>
             <label className={label}>Drop-off Location</label>
-            <input
-              type="text"
+            <select
               name="dropoff"
-              required
-              minLength={3}
-              maxLength={80}
-              placeholder="e.g., Science Building - Rm 302"
               value={formData.dropoff}
               onChange={handleChange}
-              className={box("dropoff")}
-            />
+              className={`${box("dropoff")} bg-white`}
+              required
+            >
+              <option value="" disabled>Select a campus room</option>
+              {CAMPUS_ROOM_GROUPS.map((group) => (
+                <optgroup key={group.building} label={group.building}>
+                  {group.rooms.map((room) => (
+                    <option key={room} value={room}>{room}</option>
+                  ))}
+                </optgroup>
+              ))}
+              <option value="Others">Others</option>
+            </select>
+            <p className="mt-1 text-xs text-slate-400">Room list is an estimate. Choose Others if your location is not listed.</p>
             {err("dropoff")}
+            {formData.dropoff === "Others" && (
+              <input
+                type="text"
+                required
+                minLength={3}
+                maxLength={80}
+                placeholder="Enter another campus drop-off location"
+                value={otherDropoff}
+                onChange={(e) => setOtherDropoff(e.target.value)}
+                className={`${box("dropoffOther")} mt-2`}
+              />
+            )}
+            {err("dropoffOther")}
           </div>
         </div>
 
@@ -224,16 +305,45 @@ export default function CreateErrand({
         </div>
 
         <div>
-          <label className={label}>Deadline / Preferred Time</label>
-          <input
-            type="datetime-local"
-            name="deadline"
-            required
-            min={toLocalInputValue(new Date())} // blocks past dates/times
-            value={formData.deadline}
-            onChange={handleChange}
-            className={box("deadline")}
-          />
+          <label className={label}>Preferred Date and Time</label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input
+              type="date"
+              name="preferredDate"
+              required
+              min={nextAvailableDate()}
+              value={preferredDate}
+              onChange={(e) => {
+                setPreferredDate(e.target.value);
+                setPreferredTime("");
+                setFormData((current) => ({ ...current, deadline: "" }));
+                setFields((current) => ({ ...current, deadline: "" }));
+              }}
+              className={box("deadline")}
+              aria-label="Preferred date"
+            />
+            <select
+              name="preferredTime"
+              required
+              value={preferredTime}
+              onChange={(e) => {
+                setPreferredTime(e.target.value);
+                setFormData((current) => ({ ...current, deadline: `${preferredDate}T${e.target.value}` }));
+                setFields((current) => ({ ...current, deadline: "" }));
+              }}
+              className={`${box("deadline")} bg-white`}
+              aria-label="Preferred time"
+            >
+              <option value="" disabled>Select a time</option>
+              {TIME_SLOTS.filter((item) => {
+                if (preferredDate !== toLocalDateValue(new Date())) return true;
+                return new Date(`${preferredDate}T${item.value}`).getTime() > Date.now();
+              }).map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
+            </select>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">Available every 30 minutes from 7:30 AM to 6:00 PM. Past dates and times are unavailable.</p>
           {err("deadline")}
         </div>
 
@@ -260,17 +370,19 @@ export default function CreateErrand({
             minLength={10}
             maxLength={600}
             rows={3}
+            onBlur={() => setFormData((current) => ({ ...current, instructions: current.instructions.trim() }))}
             placeholder="Provide specific notes for the runner..."
             value={formData.instructions}
             onChange={handleChange}
             className={box("instructions")}
           />
           {err("instructions")}
+          <p className="mt-1 text-xs text-slate-400">Enter 10–600 characters with at least one letter or number. Markup is not allowed.</p>
         </div>
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || !serviceOpen}
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 py-3.5 font-bold text-white shadow-md shadow-emerald-200 transition hover:bg-emerald-600 disabled:opacity-50"
         >
           <PlusCircle className="h-5 w-5" />

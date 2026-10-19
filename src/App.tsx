@@ -7,7 +7,7 @@ import CreateErrand from "./components/CreateErrand";
 import Login from "./screens/Login";
 import SignUp from "./screens/SignUp";
 import Landing from "./screens/Landing";
-import RoleSelect, { AppRole } from "./screens/RoleSelect";
+import type { AppRole } from "./screens/RoleSelect";
 import AdminLogin from "./screens/AdminLogin";
 import RunnerNavbar, { type RunnerTab } from "./components/Runnernavbar";
 import BrowseErrands from "./screens/runner/BrowseErrands";
@@ -25,7 +25,7 @@ interface UserProfile {
   role: AppRole | "admin";
 }
 
-type AuthScreen = "landing" | "role" | "login" | "signup" | "admin";
+type AuthScreen = "landing" | "login" | "signup" | "admin";
 
 export default function App() {
   const [token, setToken] = useState<string | null>(
@@ -47,7 +47,6 @@ export default function App() {
   const [authScreen, setAuthScreen] = useState<AuthScreen>(() =>
     window.location.pathname === "/staff-access" ? "admin" : "landing",
   );
-  const [selectedRole, setSelectedRole] = useState<AppRole>("student");
 
   useEffect(() => {
     if (token) {
@@ -87,23 +86,11 @@ export default function App() {
     window.history.replaceState(null, "", "/");
   };
 
-  // Not logged in: landing -> role select -> login / sign up.
+  // Not logged in: landing -> login / sign up. Login routes by the account role returned by the API.
   // Staff reach the admin login directly at /staff-access.
   if (!token || !user) {
     if (authScreen === "landing") {
-      return <Landing onGetStarted={() => setAuthScreen("role")} />;
-    }
-
-    if (authScreen === "role") {
-      return (
-        <RoleSelect
-          onBack={() => setAuthScreen("landing")}
-          onContinue={(role) => {
-            setSelectedRole(role);
-            setAuthScreen("login");
-          }}
-        />
-      );
+      return <Landing onGetStarted={() => setAuthScreen("login")} />;
     }
 
     if (authScreen === "admin") {
@@ -132,8 +119,7 @@ export default function App() {
 
     return (
       <Login
-        role={selectedRole}
-        onBack={() => setAuthScreen("role")}
+        onBack={() => setAuthScreen("landing")}
         onLogin={handleAuthSuccess}
         onSignUp={() => setAuthScreen("signup")}
       />

@@ -9,6 +9,7 @@ import { Review } from "../models/Review.js";
 import { RunnerLocation } from "../models/RunnerLocation.js";
 import { User } from "../models/User.js";
 import { Notification } from "../models/Notification.js";
+import { ChatMessage } from "../models/ChatMessage.js";
 import { sweepExpiredErrands } from "../jobs/expiredErrandSweep.js";
 import { isInsideCampus } from "../config/campus.js";
 
@@ -35,6 +36,19 @@ router.get("/reviews/me", async (req, res, next) => {
 
 const STATUSES = ["review", "done"];
 const FINAL = ["done", "cancelled"]; // once here, an errand can no longer change status
+
+function campusServiceIsOpen(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Manila",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const hour = Number(parts.find((part) => part.type === "hour")?.value);
+  const minute = Number(parts.find((part) => part.type === "minute")?.value);
+  const minutes = hour * 60 + minute;
+  return minutes >= 7 * 60 + 30 && minutes <= 18 * 60;
+}
 
 async function saveNotifications(records) {
   if (!records.length) return;
@@ -98,7 +112,12 @@ router.get("/mine", async (req, res, next) => {
 });
 
 /* POST /api/errands - validated; ownerId comes from the JWT, not the body */
-router.post("/", validate(errandSchema), async (req, res, next) => {
+router.post("/", (req, res, next) => {
+  if (!campusServiceIsOpen()) {
+    return res.status(403).json({ error: "Errand posting is closed. Service hours are 7:30 AM to 6:00 PM, Manila time." });
+  }
+  next();
+}, validate(errandSchema), async (req, res, next) => {
   try {
     const errand = await Errand.create({ ...req.valid, ownerId: req.user.id });
     const runners = await User.find({
@@ -124,6 +143,52 @@ router.post("/", validate(errandSchema), async (req, res, next) => {
       );
       return res.status(422).json({ error: "Invalid payload.", fields });
     }
+    next(err);
+  }
+});
+
+/* Chat is private to the errand requester and its assigned runner. */
+router.get("/:id/messages", validObjectId(), async (req, res, next) => {
+  try {
+    const errand = await Errand.findById(req.params.id).select("ownerId runnerId").lean();
+    const isParticipant = errand && (
+      String(errand.ownerId) === req.user.id || String(errand.runnerId) === req.user.id
+    );
+    if (!isParticipant) return res.status(404).json({ error: "Conversation not found." });
+
+    const messages = await ChatMessage.find({ errandId: errand._id })
+      .sort({ createdAt: -1, _id: -1 })
+      .populate("senderId", "fullName")
+      .lean();
+    res.json({ messages: messages.reverse() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/:id/messages", validObjectId(), async (req, res, next) => {
+  try {
+    const errand = await Errand.findById(req.params.id).select("ownerId runnerId status");
+    const isParticipant = errand && (
+      String(errand.ownerId) === req.user.id || String(errand.runnerId) === req.user.id
+    );
+    if (!isParticipant) return res.status(404).json({ error: "Conversation not found." });
+    if (!["in_progress", "picked_up", "review"].includes(errand.status)) {
+      return res.status(409).json({ error: "Messaging is only available while this errand is active." });
+    }
+
+    const message = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+    if (!message || message.length > 500) {
+      return res.status(422).json({
+        error: "Write a message of 1 to 500 characters.",
+        fields: { message: "Messages must be between 1 and 500 characters." },
+      });
+    }
+
+    const saved = await ChatMessage.create({ errandId: errand._id, senderId: req.user.id, message });
+    await saved.populate("senderId", "fullName");
+    res.status(201).json({ message: saved });
+  } catch (err) {
     next(err);
   }
 });
