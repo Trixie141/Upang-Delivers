@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { UserCog } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { GraduationCap, UserCog } from "lucide-react";
 import { api } from "@/lib/api";
 import RunnerProfile, { RunnerProfileStats } from "./RunnerProfile";
 
@@ -35,6 +35,38 @@ function validateForm(f: FormState, emailChanged: boolean) {
     e.currentPassword = "Enter your current password to change your email.";
   if (f.phone.length > 20) e.phone = "Phone number is too long.";
   return e;
+}
+
+async function compressImageAsJpeg(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1400 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not process this image.");
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  for (const quality of [0.82, 0.72, 0.62, 0.52, 0.42]) {
+    const data = canvas.toDataURL("image/jpeg", quality);
+    if (data.length <= 220_000) return data;
+  }
+  throw new Error("Image is still too large. Choose a smaller photo.");
+}
+
+function captureVideoFrame(video: HTMLVideoElement): string {
+  const scale = Math.min(1, 1000 / Math.max(video.videoWidth, video.videoHeight));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+  canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not capture the camera image.");
+  context.drawImage(video, 0, 0, canvas.width, canvas.height);
+  for (const quality of [0.78, 0.68, 0.58, 0.48, 0.38]) {
+    const data = canvas.toDataURL("image/jpeg", quality);
+    if (data.length <= 220_000) return data;
+  }
+  throw new Error("The captured image is too large. Move closer to the camera and try again.");
 }
 
 // Monday = 0 ... Sunday = 6 (matches the chart labels)
@@ -88,12 +120,14 @@ export default function RunnerProfileContainer({
   userId,
   name,
   onProfileUpdated,
+  onSwitchToStudent,
 }: {
   token: string;
   userId: string;
   name: string;
   /** Lets App.tsx refresh the name shown in the navbar after a save */
   onProfileUpdated?: (u: { fullName: string }) => void;
+  onSwitchToStudent?: () => void;
 }) {
   const [stats, setStats] = useState<RunnerProfileStats>(EMPTY_STATS);
   const [displayName, setDisplayName] = useState(name);
@@ -110,6 +144,17 @@ export default function RunnerProfileContainer({
   const [savedEmail, setSavedEmail] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [switchingRole, setSwitchingRole] = useState(false);
+  const [switchError, setSwitchError] = useState("");
+  const [switchNotice, setSwitchNotice] = useState("");
+  const [verificationStatus, setVerificationStatus] = useState("");
+  const [verificationPending, setVerificationPending] = useState(false);
+  const [studentIdImage, setStudentIdImage] = useState("");
+  const [studentIdImageName, setStudentIdImageName] = useState("");
+  const [selfieImage, setSelfieImage] = useState("");
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -132,10 +177,19 @@ export default function RunnerProfileContainer({
           phone: u.phone ?? "",
         }));
         setAvailable(u.available !== false);
+        setVerificationStatus(u.idVerificationStatus ?? "not_required");
         // Keeps the navbar (and localStorage cache) in sync with the database
         // on every load, not just after a save — covers edits made before this
         // wiring existed, or made from another device/session.
         if (fullName && fullName !== name) onProfileUpdated?.({ fullName });
+      }
+      if (meRes.code === "ID_REVIEW_PENDING") {
+        setVerificationPending(true);
+        setVerificationStatus("pending");
+      }
+      if (meRes.code === "ID_REVIEW_REJECTED") {
+        setVerificationStatus("rejected");
+        setSwitchError(meRes.error || "Your student ID was not approved.");
       }
 
       if (errRes.ok) {
@@ -158,6 +212,46 @@ export default function RunnerProfileContainer({
     // perspective and including it would re-run this fetch on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, userId, name]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!cameraStream || !video) return;
+    video.srcObject = cameraStream;
+    void video.play().catch(() => setCameraError("Allow camera access in your browser, then try again."));
+    return () => {
+      video.srcObject = null;
+      cameraStream.getTracks().forEach((track) => track.stop());
+    };
+  }, [cameraStream]);
+
+  useEffect(() => {
+    if (!verificationPending) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const checkReview = async () => {
+      const res = await api.me(token);
+      if (!alive) return;
+      if (res.ok && res.user?.role === "student") {
+        setVerificationPending(false);
+        onSwitchToStudent?.();
+        return;
+      }
+      if (res.code === "ID_REVIEW_REJECTED") {
+        setSwitchError(res.error || "Your student ID was not approved.");
+        setSwitchNotice("");
+        setVerificationPending(false);
+        return;
+      }
+      timer = setTimeout(checkReview, 5000);
+    };
+    timer = setTimeout(checkReview, 5000);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+    // This poll runs only while student verification is pending.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [verificationPending, token]);
 
   const set =
     (k: keyof FormState) =>
@@ -192,7 +286,7 @@ export default function RunnerProfileContainer({
 
     if (!res.ok) {
       setFieldErrors(res.fields ?? {});
-      setMsg({ ok: false, text: `${res.status} — ${res.error}` });
+      setMsg({ ok: false, text: res.error });
       return;
     }
 
@@ -211,6 +305,57 @@ export default function RunnerProfileContainer({
     setMsg({ ok: true, text: "Profile changes saved." });
   }
 
+  async function startCamera() {
+    setCameraError("");
+    setSelfieImage("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Live camera access requires HTTPS or localhost and a supported browser.");
+      return;
+    }
+    try {
+      setCameraStream(await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false }));
+    } catch {
+      setCameraError("Camera access was blocked or unavailable. Allow camera permission and try again.");
+    }
+  }
+
+  function captureFace() {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setCameraError("The camera is still starting. Wait a moment and try again.");
+      return;
+    }
+    try {
+      setSelfieImage(captureVideoFrame(video));
+      setCameraError("");
+      setCameraStream(null);
+    } catch (error) {
+      setCameraError(error instanceof Error ? error.message : "Could not capture the camera image.");
+    }
+  }
+
+  async function switchToStudent() {
+    setSwitchError("");
+    setSwitchNotice("");
+    setSwitchingRole(true);
+    const res = await api.switchToStudent(
+      token,
+      verificationStatus === "approved" ? undefined : { studentIdImage, selfieImage },
+    );
+    setSwitchingRole(false);
+    if (!res.ok) {
+      setSwitchError(res.error || "Could not switch to Student. Please try again.");
+      return;
+    }
+    if (res.verificationPending) {
+      setVerificationStatus("pending");
+      setSwitchNotice("Your student ID and face capture were sent for administrator review. Your account will switch to Student automatically after approval.");
+      setVerificationPending(true);
+      return;
+    }
+    onSwitchToStudent?.();
+  }
+
   const inputEdit = (k: string) =>
     `w-full rounded-2xl px-6 py-4 text-base text-slate-800 outline-none transition placeholder:text-slate-400 ${
       fieldErrors[k]
@@ -221,6 +366,85 @@ export default function RunnerProfileContainer({
   return (
     <div className="mx-auto max-w-6xl space-y-7 pb-4">
       <RunnerProfile name={displayName} stats={stats} available={available} rating={reviewSummary.average} reviewCount={reviewSummary.count} reviews={reviewSummary.reviews} />
+
+      <section className="rounded-3xl border border-sky-100 bg-white p-7 shadow-sm sm:p-9">
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="flex items-center gap-3 text-2xl font-bold text-slate-900">
+              <GraduationCap className="h-7 w-7 text-sky-600" /> Switch to Student
+            </h3>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              Return to the Student view to post errands. If your student ID has not been reviewed, submit it here for administrator approval.
+            </p>
+            {switchError && <p className="mt-3 text-sm font-medium text-rose-600" role="alert">{switchError}</p>}
+            {switchNotice && <p className="mt-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800" role="status">{switchNotice}</p>}
+          </div>
+        </div>
+        {verificationPending ? (
+          <p className="mt-5 rounded-2xl bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-800" role="status">
+            Student ID review is pending. This page will switch to Student automatically after the administrator approves it.
+          </p>
+        ) : verificationStatus !== "approved" && verificationStatus !== "rejected" && (
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <div>
+              <label htmlFor="runner-student-id-image" className="text-xs font-bold tracking-wider text-slate-500">UPLOAD STUDENT ID</label>
+              <input
+                id="runner-student-id-image"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={async (event) => {
+                  const file = event.target.files?.[0];
+                  setStudentIdImage("");
+                  setStudentIdImageName("");
+                  if (!file) return;
+                  if (!file.type.startsWith("image/")) {
+                    setSwitchError("Choose an image file for your student ID.");
+                    return;
+                  }
+                  try {
+                    setStudentIdImage(await compressImageAsJpeg(file));
+                    setStudentIdImageName(file.name);
+                    setSwitchError("");
+                  } catch (error) {
+                    setSwitchError(error instanceof Error ? error.message : "Could not read this image.");
+                  }
+                }}
+                className="mt-2 block w-full rounded-xl border border-slate-200 p-3 text-sm"
+              />
+              <p className="mt-2 text-xs text-slate-500">A clear image is shown only to the administrator for review.</p>
+              {studentIdImageName && <p className="mt-1 text-xs text-emerald-700">Selected: {studentIdImageName}</p>}
+            </div>
+            <div>
+              <p className="text-xs font-bold tracking-wider text-slate-500">LIVE FACE CAPTURE</p>
+              <p className="mt-2 text-xs text-slate-500">An administrator will compare this camera capture with your student ID.</p>
+              {selfieImage ? (
+                <div className="mt-3">
+                  <img src={selfieImage} alt="Captured face for student ID review" className="max-h-48 w-full rounded-xl bg-slate-100 object-contain" />
+                  <button type="button" onClick={startCamera} className="mt-2 text-sm font-semibold text-emerald-700 underline">Retake using camera</button>
+                </div>
+              ) : cameraStream ? (
+                <div className="mt-3">
+                  <video ref={videoRef} autoPlay playsInline muted aria-label="Live camera preview" className="max-h-48 w-full rounded-xl bg-slate-900 object-cover" />
+                  <button type="button" onClick={captureFace} className="mt-2 w-full rounded-xl bg-emerald-600 px-4 py-3 font-bold text-white">Capture face</button>
+                </div>
+              ) : (
+                <button type="button" onClick={startCamera} className="mt-3 w-full rounded-xl border border-slate-200 px-4 py-3 font-semibold text-emerald-800 hover:bg-emerald-50">Open camera</button>
+              )}
+              {cameraError && <p className="mt-2 text-sm font-medium text-rose-600" role="alert">{cameraError}</p>}
+            </div>
+          </div>
+        )}
+        {!verificationPending && verificationStatus !== "rejected" && (
+          <button
+            type="button"
+            onClick={switchToStudent}
+            disabled={switchingRole || (verificationStatus !== "approved" && (!studentIdImage || !selfieImage))}
+            className="mt-5 rounded-2xl bg-sky-600 px-7 py-4 font-bold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {switchingRole ? "Submitting..." : verificationStatus === "approved" ? "Switch to Student" : "Submit for Student Review"}
+          </button>
+        )}
+      </section>
 
       <div className="rounded-3xl bg-white p-7 shadow-sm sm:p-9">
         <h3 className="flex items-center gap-3 text-2xl font-bold text-slate-900">

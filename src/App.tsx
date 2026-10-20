@@ -176,6 +176,10 @@ export default function App() {
               onProfileUpdated={(u) =>
                 setUser((prev) => (prev ? { ...prev, fullName: u.fullName } : prev))
               }
+              onSwitchToStudent={() => {
+                setActiveTab("browse");
+                setUser((prev) => (prev ? { ...prev, role: "student" } : prev));
+              }}
             />
           )}
         </main>
@@ -208,6 +212,10 @@ export default function App() {
     onProfileUpdated={(u) =>
       setUser((prev) => (prev ? { ...prev, fullName: u.fullName } : prev))
     }
+    onSwitchToRunner={() => {
+      setRunnerTab("browse");
+      setUser((prev) => (prev ? { ...prev, role: "delivery" } : prev));
+    }}
   />
 )}
       </main>

@@ -137,11 +137,11 @@ router.post("/complete-registration", authLimiter, validate(completeRegistration
       studentId,
       email,
       role,
-      status: role === "student" ? "pending" : "active",
+      status: "pending",
       emailVerified: true,
-      studentIdImage: role === "student" ? studentIdImage : null,
-      selfieImage: role === "student" ? selfieImage : null,
-      idVerificationStatus: role === "student" ? "pending" : "not_required",
+      studentIdImage,
+      selfieImage,
+      idVerificationStatus: "pending",
       termsAcceptedAt: new Date(),
       termsVersion: LEGAL_POLICY_VERSION,
       privacyPolicyVersion: LEGAL_POLICY_VERSION,
@@ -149,12 +149,8 @@ router.post("/complete-registration", authLimiter, validate(completeRegistration
     user.password = password;
     await user.save();
     await EmailCode.deleteMany({ email, purpose: "signup" });
-    if (role === "student") {
-      audit(email, "POST", "/api/auth/verify-email", 200, "Student account awaiting ID review", req.ip);
-      return res.json({ verificationPending: true, message: "Email verified. Your student ID is waiting for administrator review. You can log in after it is approved." });
-    }
-    audit(email, "POST", "/api/auth/verify-email", 200, "Email verified; account activated", req.ip);
-    res.json({ token: signToken(user), user: user.toSafeJSON() });
+    audit(email, "POST", "/api/auth/verify-email", 200, `${role === "delivery" ? "Runner" : "Student"} account awaiting ID review`, req.ip);
+    res.json({ verificationPending: true, message: `Email verified. Your student ID is waiting for administrator review. You can log in as a ${role === "delivery" ? "runner" : "student"} after it is approved.` });
   } catch (err) {
     next(err);
   }
@@ -249,7 +245,7 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res, next)
     }
     // Migrate older verified accounts that were left pending by the former
     // administrator-approval flow. SMTP email verification is sufficient.
-    if (user.status === "pending" && user.emailVerified !== false) {
+    if (user.status === "pending" && user.emailVerified !== false && user.idVerificationStatus !== "pending") {
       user.status = "active";
       await user.save();
     }
@@ -358,6 +354,80 @@ router.get("/me", requireAuth, async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ error: "User not found." });
+    res.json({ user: user.toSafeJSON() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* POST /api/auth/me/switch-to-runner --------------------------------------
+ * Lets an active student move into the runner experience from their profile.
+ * The role is changed server-side; requireAuth reads it from MongoDB on every
+ * request, so the existing session takes effect immediately.
+ */
+router.post("/me/switch-to-runner", requireAuth, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+    if (user.role !== "student")
+      return res.status(409).json({ error: "Only student accounts can switch to Runner." });
+    if (user.status !== "active" || user.emailVerified === false)
+      return res.status(403).json({ error: "Your account must be active and email-verified to switch to Runner." });
+    if (user.idVerificationStatus === "pending" || user.idVerificationStatus === "rejected")
+      return res.status(403).json({ error: "Your student ID must be approved before you can switch to Runner." });
+    if (!/^\d{2}-\d{4}-\d{3,6}$/.test(user.studentId || ""))
+      return res.status(422).json({ error: "Add a valid student ID in your profile before switching to Runner." });
+
+    user.role = "delivery";
+    user.available = true;
+    await user.save();
+    audit(user.email, "POST", "/api/auth/me/switch-to-runner", 200, "Student switched to Runner", req.ip);
+    res.json({ user: user.toSafeJSON() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* POST /api/auth/me/switch-to-student -------------------------------------
+ * An already approved account can switch immediately. Runner-only accounts
+ * submit their student ID and live face capture for the existing admin review
+ * before gaining access to student errand posting.
+ */
+router.post("/me/switch-to-student", requireAuth, async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found." });
+    if (user.role !== "delivery")
+      return res.status(409).json({ error: "Only Runner accounts can switch to Student." });
+    if (user.status !== "active" || user.emailVerified === false)
+      return res.status(403).json({ error: "Your account must be active and email-verified to switch to Student." });
+    if (!/^\d{2}-\d{4}-\d{3,6}$/.test(user.studentId || ""))
+      return res.status(422).json({ error: "A valid student ID is required to switch to Student." });
+    if (user.idVerificationStatus === "rejected")
+      return res.status(403).json({ error: `Your student ID was not approved: ${user.idVerificationReason || "Contact the administrator for help."}` });
+
+    if (user.idVerificationStatus !== "approved") {
+      const { studentIdImage, selfieImage } = req.body ?? {};
+      const validJpeg = (value) => typeof value === "string" && value.length <= 220_000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
+      if (!validJpeg(studentIdImage) || !validJpeg(selfieImage)) {
+        return res.status(422).json({ error: "Upload a clear student ID photo and capture your face before requesting Student access." });
+      }
+      user.role = "student";
+      user.status = "pending";
+      user.idVerificationStatus = "pending";
+      user.idVerificationReason = "";
+      user.studentIdImage = studentIdImage;
+      user.selfieImage = selfieImage;
+      user.available = false;
+      await user.save();
+      audit(user.email, "POST", "/api/auth/me/switch-to-student", 202, "Student access requested; ID review pending", req.ip);
+      return res.status(202).json({ user: user.toSafeJSON(), verificationPending: true });
+    }
+
+    user.role = "student";
+    user.available = false;
+    await user.save();
+    audit(user.email, "POST", "/api/auth/me/switch-to-student", 200, "Runner switched to Student", req.ip);
     res.json({ user: user.toSafeJSON() });
   } catch (err) {
     next(err);

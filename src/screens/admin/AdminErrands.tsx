@@ -66,7 +66,7 @@ export default function AdminErrands({ token }: { token: string }) {
     setLoading(false);
 
     if (!errRes.ok) {
-      setError(`${errRes.status} — ${errRes.error}`);
+      setError(errRes.error);
       return;
     }
     const list = errRes.errands ?? errRes.data ?? [];
@@ -161,7 +161,7 @@ export default function AdminErrands({ token }: { token: string }) {
     const res = await api.cancelAdminErrand(token, id, reason);
     setBusyId("");
     if (!res.ok) {
-      setError(`${res.status} — ${res.error}`);
+      setError(res.error);
       return;
     }
     setErrands((all) => all.map((row) => String(row._id ?? row.id) === id ? { ...row, status: "cancelled", cancelReason: reason } : row));

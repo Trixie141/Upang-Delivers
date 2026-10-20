@@ -42,7 +42,7 @@ export async function requireAuth(req, res, next) {
       return res.status(401).json({ error: "Invalid or expired token." });
     }
 
-    const user = await User.findById(payload.sub).select("role status suspensionReason suspendedUntil").lean();
+    const user = await User.findById(payload.sub).select("role status suspensionReason suspendedUntil idVerificationStatus idVerificationReason").lean();
     if (!user) return res.status(401).json({ error: "Invalid or expired token." });
     if (user.status === "suspended" && user.suspendedUntil && user.suspendedUntil <= new Date()) {
       await User.updateOne({ _id: user._id, status: "suspended", suspendedUntil: { $lte: new Date() } }, {
@@ -51,6 +51,12 @@ export async function requireAuth(req, res, next) {
       user.status = "active";
     }
     if (user.status !== "active") {
+      if (user.status === "pending" && ["student", "delivery"].includes(user.role) && user.idVerificationStatus === "pending") {
+        return res.status(403).json({ error: "Your student ID is awaiting administrator review.", code: "ID_REVIEW_PENDING" });
+      }
+      if (user.idVerificationStatus === "rejected") {
+        return res.status(403).json({ error: `Your student ID was not approved: ${user.idVerificationReason || user.suspensionReason || "Contact the administrator for help."}`, code: "ID_REVIEW_REJECTED" });
+      }
       const reason = user.suspensionReason || "the account suspension set by the administrator";
       const until = user.suspendedUntil ? ` It is scheduled to end on ${new Date(user.suspendedUntil).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}.` : " The suspension is indefinite; contact the administrator for help.";
       return res.status(403).json({ error: `Your account is suspended due to: ${reason}.${until}`, code: "ACCOUNT_SUSPENDED" });

@@ -33,7 +33,7 @@ export default function Browse({ token, userRole }: { token: string; userRole: s
     setLoading(false);
 
     if (!res.ok) {
-      setBanner(`${res.status} — ${res.error || "Failed to fetch errands."}`);
+      setBanner(res.error || "Failed to fetch errands.");
       return;
     }
 
@@ -52,7 +52,7 @@ export default function Browse({ token, userRole }: { token: string; userRole: s
     setAcceptingId(null);
 
     if (!res.ok) {
-      setBanner(`${res.status} — ${res.error || "Failed to accept errand."}`);
+      setBanner(res.error || "Failed to accept errand.");
       return;
     }
 

@@ -104,7 +104,7 @@ export default function AdminProfile({
     if (tab !== "admins" || admins !== null) return;
     api.getUsers(token).then((res) => {
       if (!res.ok) {
-        setAdminsError(`${res.status} — Could not load admin accounts.`);
+        setAdminsError("Could not load admin accounts.");
         setAdmins([]);
         return;
       }
@@ -144,7 +144,7 @@ export default function AdminProfile({
 
     if (!res.ok) {
       setFieldErrors(res.fields ?? {});
-      setMsg({ ok: false, text: `${res.status} — ${res.error}` });
+      setMsg({ ok: false, text: res.error });
       return;
     }
 
@@ -168,7 +168,7 @@ export default function AdminProfile({
     const res = await api.changePassword(token, passwordForm.current, passwordForm.next, passwordForm.confirm);
     setChangingPassword(false);
     if (!res.ok) {
-      setPasswordMsg({ ok: false, text: `${res.status} — ${res.error}` });
+      setPasswordMsg({ ok: false, text: res.error });
       return;
     }
     setPasswordForm({ current: "", next: "", confirm: "" });
@@ -184,7 +184,7 @@ export default function AdminProfile({
 
     if (!userRes.ok) {
       setExporting(false);
-      setExportMsg(`${userRes.status} — Could not load users to export.`);
+      setExportMsg("Could not load users to export.");
       return;
     }
 

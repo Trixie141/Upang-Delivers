@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Sandwich, Printer, Users, MoreHorizontal, ShieldCheck, AlertCircle } from "lucide-react";
 import { useStore } from "../store";
 import { api } from "@/lib/api";
-import { CAMPUS_ROOM_GROUPS } from "@/lib/campusRooms";
+import { CAMPUS_BUILDINGS, getBuilding } from "@/lib/campusRooms";
 
 const categories = [
   { key: "Food Run", icon: Sandwich, tint: "text-emerald-600" },
@@ -31,7 +31,8 @@ export default function PostErrand({
   const [instructions, setInstructions] = useState("");
   const [pickup, setPickup] = useState("");
   const [dropoff, setDropoff] = useState("");
-  const [otherDropoff, setOtherDropoff] = useState("");
+  const [dropoffBuilding, setDropoffBuilding] = useState("");
+  const [dropoffRoom, setDropoffRoom] = useState("");
   const [reward, setReward] = useState("50");
   const [paymentMethod, setPaymentMethod] = useState("cash_on_delivery");
   const [deadline, setDeadline] = useState(deadlines[0]);
@@ -46,7 +47,7 @@ export default function PostErrand({
 
   const payload = {
     title, instructions, pickup,
-    dropoff: dropoff === "Others" ? otherDropoff.trim() : dropoff,
+    dropoff: [dropoffBuilding, dropoffRoom].filter(Boolean).join(" - "),
     reward, category, deadline,
     paymentMethod,
     cod: paymentMethod === "cash_on_delivery",
@@ -71,7 +72,7 @@ export default function PostErrand({
 
   if (!res.ok) {
     setFields(res.fields ?? {});
-    setBanner(`${res.status} — ${res.error}`);
+    setBanner(res.error);
     return;
   }
 
@@ -83,7 +84,8 @@ export default function PostErrand({
   setInstructions("");
   setPickup("");
   setDropoff("");
-  setOtherDropoff("");
+  setDropoffBuilding("");
+  setDropoffRoom("");
   setPage("requests");
 }
 
@@ -199,32 +201,40 @@ export default function PostErrand({
                 DROP-OFF LOCATION
               </label>
               <select
-                value={dropoff}
-                onChange={(e) => setDropoff(e.target.value)}
+                value={dropoffBuilding}
+                onChange={(e) => {
+                  setDropoffBuilding(e.target.value);
+                  setDropoffRoom("");
+                  setDropoff("");
+                  setFields((current) => ({ ...current, dropoff: "" }));
+                }}
                 className={`mt-2 ${box("dropoff")} bg-white`}
                 required
+                aria-label="Drop-off building"
               >
-                <option value="" disabled>Select a campus room</option>
-                {CAMPUS_ROOM_GROUPS.map((group) => (
-                  <optgroup key={group.building} label={group.building}>
-                    {group.rooms.map((room) => (
-                      <option key={room} value={room}>{room}</option>
-                    ))}
+                <option value="">Select building</option>
+                {CAMPUS_BUILDINGS.map(({ building }) => <option key={building} value={building}>{building}</option>)}
+              </select>
+              <select
+                value={dropoffRoom}
+                onChange={(e) => {
+                  setDropoffRoom(e.target.value);
+                  setDropoff(e.target.value);
+                  setFields((current) => ({ ...current, dropoff: "" }));
+                }}
+                className={`mt-2 ${box("dropoff")} bg-white`}
+                required
+                disabled={!dropoffBuilding}
+                aria-label="Drop-off room number"
+              >
+                <option value="">Select room number or location</option>
+                {getBuilding(dropoffBuilding)?.floors.map((group) => (
+                  <optgroup key={group.floor} label={group.floor}>
+                    {group.rooms.map((room) => <option key={room} value={room}>{room}</option>)}
                   </optgroup>
                 ))}
-                <option value="Others">Others</option>
               </select>
-              <p className="mt-1 text-xs text-slate-400">Room list is an estimate. Choose Others if your location is not listed.</p>
-              {dropoff === "Others" && (
-                <input
-                  value={otherDropoff}
-                  onChange={(e) => setOtherDropoff(e.target.value)}
-                  placeholder="Enter another campus drop-off location"
-                  maxLength={80}
-                  className={`mt-2 ${box("dropoff")}`}
-                  required
-                />
-              )}
+              <p className="mt-1 text-xs text-slate-400">Choose the building first, then select a room or listed campus location.</p>
               {err("dropoff")}
             </div>
           </div>

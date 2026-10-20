@@ -118,6 +118,10 @@ export const api = {
 
   /** GET /api/auth/me */
   me: (token: string) => request("/auth/me", "GET", token),
+  /** POST /api/auth/me/switch-to-runner */
+  switchToRunner: (token: string) => request("/auth/me/switch-to-runner", "POST", token, {}),
+  /** POST /api/auth/me/switch-to-student */
+  switchToStudent: (token: string, images?: { studentIdImage: string; selfieImage: string }) => request("/auth/me/switch-to-student", "POST", token, images ?? {}),
   /** PATCH /api/auth/me */
   updateProfile: (token: string, data: { phone: string; spot: string; fullName?: string; studentId?: string; email?: string; currentPassword?: string; available?: boolean }) =>
      request("/auth/me", "PATCH", token, data),

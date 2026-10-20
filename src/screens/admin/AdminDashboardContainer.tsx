@@ -106,7 +106,7 @@ export default function AdminDashboardContainer({ token }: { token: string }) {
         if (!userRes.ok || !errRes.ok) {
           const failed = !userRes.ok ? ["users", userRes] : ["errands", errRes];
           const response = failed[1] as typeof userRes;
-          setError(`Could not load ${failed[0]}: ${response.status} — ${response.error ?? "Request failed"}`);
+          setError(`Could not load ${failed[0]}: ${response.error ?? "Request failed"}`);
           return;
         }
 
@@ -127,7 +127,7 @@ export default function AdminDashboardContainer({ token }: { token: string }) {
           built.stats.revenue = Math.round(Number(statsRes.revenue ?? built.stats.revenue) * REVENUE_RATE);
         }
         setData(built);
-        if (!statsRes.ok) setError(`Dashboard totals could not load (${statsRes.status}): ${statsRes.error ?? "Using user and errand records instead."}`);
+        if (!statsRes.ok) setError(`Dashboard totals could not load: ${statsRes.error ?? "Using user and errand records instead."}`);
         else if (ul.length === 0 && el.length === 0 && Number(statsRes.totalUsers ?? 0) === 0) {
           setError("The connected database returned no user or errand records. Check that this app is using the database where your accounts and errands are stored.");
         }

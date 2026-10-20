@@ -9,6 +9,7 @@ import {
   Hourglass,
   CheckCheck,
   Coins,
+  Bike,
 } from "lucide-react";
 import { api } from "@/lib/api";
 
@@ -71,12 +72,14 @@ export default function StudentProfile({
   userId,
   name,
   onProfileUpdated,
+  onSwitchToRunner,
 }: {
   token: string;
   userId: string;
   name: string;
   /** Lets App.tsx refresh the name shown in the navbar, on load and after a save */
   onProfileUpdated?: (u: { fullName: string }) => void;
+  onSwitchToRunner?: () => void;
 }) {
   const [stats, setStats] = useState<Stats>(EMPTY_STATS);
   const [loading, setLoading] = useState(true);
@@ -93,6 +96,8 @@ export default function StudentProfile({
   const [emailVerified, setEmailVerified] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [switchingRole, setSwitchingRole] = useState(false);
+  const [switchError, setSwitchError] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -172,7 +177,7 @@ export default function StudentProfile({
 
     if (!res.ok) {
       setFieldErrors(res.fields ?? {});
-      setMsg({ ok: false, text: `${res.status} — ${res.error}` });
+      setMsg({ ok: false, text: res.error });
       return;
     }
 
@@ -188,6 +193,18 @@ export default function StudentProfile({
     }));
     onProfileUpdated?.({ fullName: newName });
     setMsg({ ok: true, text: "Profile changes saved." });
+  }
+
+  async function switchToRunner() {
+    setSwitchError("");
+    setSwitchingRole(true);
+    const res = await api.switchToRunner(token);
+    setSwitchingRole(false);
+    if (!res.ok) {
+      setSwitchError(res.error || "Could not switch to Runner. Please try again.");
+      return;
+    }
+    onSwitchToRunner?.();
   }
 
   const initials =
@@ -374,6 +391,28 @@ export default function StudentProfile({
             </p>
           </div>
         </div>
+
+        <section className="mt-7 mb-10 rounded-3xl border border-emerald-100 bg-white p-7 shadow-sm sm:p-9">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="flex items-center gap-3 text-2xl font-bold text-slate-900">
+                <Bike className="h-7 w-7 text-emerald-600" /> Become a Runner
+              </h3>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                Switch your account to Runner to browse and accept campus errands. Your account must be active and your student ID approved.
+              </p>
+              {switchError && <p className="mt-3 text-sm font-medium text-rose-600" role="alert">{switchError}</p>}
+            </div>
+            <button
+              type="button"
+              onClick={switchToRunner}
+              disabled={switchingRole || loading}
+              className="shrink-0 rounded-2xl bg-emerald-600 px-7 py-4 font-bold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {switchingRole ? "Switching..." : "Switch to Runner"}
+            </button>
+          </div>
+        </section>
 
         {/* Verification: only things the sign-up flow actually enforces */}
         <div className="mt-7 mb-10 rounded-3xl bg-white p-7 shadow-sm sm:p-9">

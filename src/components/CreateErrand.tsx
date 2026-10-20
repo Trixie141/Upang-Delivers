@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { PlusCircle, AlertCircle } from "lucide-react";
 import { api } from "../lib/api";
-import { CAMPUS_ROOM_GROUPS } from "../lib/campusRooms";
+import { CAMPUS_BUILDINGS, getBuilding } from "../lib/campusRooms";
 
 const toLocalDateValue = (d: Date) => {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -55,7 +55,8 @@ export default function CreateErrand({
   const [loading, setLoading] = useState(false);
   const [banner, setBanner] = useState("");
   const [fields, setFields] = useState<Record<string, string>>({});
-  const [otherDropoff, setOtherDropoff] = useState("");
+  const [dropoffBuilding, setDropoffBuilding] = useState("");
+  const [dropoffRoom, setDropoffRoom] = useState("");
   const [preferredDate, setPreferredDate] = useState(nextAvailableDate);
   const [preferredTime, setPreferredTime] = useState("");
   const [serviceOpen, setServiceOpen] = useState(isCampusServiceOpen);
@@ -111,7 +112,7 @@ export default function CreateErrand({
 
     const payload = {
       ...formData,
-      dropoff: formData.dropoff === "Others" ? otherDropoff.trim() : formData.dropoff,
+      dropoff: [dropoffBuilding, dropoffRoom].filter(Boolean).join(" - "),
       reward: Number(formData.reward),
       deadline: selectedDateTime.toISOString(),
     };
@@ -130,7 +131,7 @@ export default function CreateErrand({
 
     if (!res.ok) {
       setFields(res.fields ?? {}); // shows which field the server rejected
-      setBanner(`${res.status} — ${res.error || "Failed to post errand request."}`);
+      setBanner(res.error || "Failed to post errand request.");
       return;
     }
 
@@ -244,40 +245,44 @@ export default function CreateErrand({
             <p className="mt-1 text-xs text-slate-400">Enter 3–80 characters. The location cannot be blank or contain &lt; or &gt;.</p>
           </div>
 
-          <div>
+          <div className="space-y-3">
             <label className={label}>Drop-off Location</label>
             <select
-              name="dropoff"
-              value={formData.dropoff}
-              onChange={handleChange}
+              value={dropoffBuilding}
+              onChange={(e) => {
+                setDropoffBuilding(e.target.value);
+                setDropoffRoom("");
+                setFormData((current) => ({ ...current, dropoff: "" }));
+                setFields((current) => ({ ...current, dropoff: "" }));
+              }}
               className={`${box("dropoff")} bg-white`}
               required
+              aria-label="Drop-off building"
             >
-              <option value="" disabled>Select a campus room</option>
-              {CAMPUS_ROOM_GROUPS.map((group) => (
-                <optgroup key={group.building} label={group.building}>
-                  {group.rooms.map((room) => (
-                    <option key={room} value={room}>{room}</option>
-                  ))}
+              <option value="">Select building</option>
+              {CAMPUS_BUILDINGS.map(({ building }) => <option key={building} value={building}>{building}</option>)}
+            </select>
+            <select
+              value={dropoffRoom}
+              onChange={(e) => {
+                setDropoffRoom(e.target.value);
+                setFormData((current) => ({ ...current, dropoff: e.target.value }));
+                setFields((current) => ({ ...current, dropoff: "" }));
+              }}
+              className={`${box("dropoff")} bg-white`}
+              required
+              disabled={!dropoffBuilding}
+              aria-label="Drop-off room number"
+            >
+              <option value="">Select room number or location</option>
+              {getBuilding(dropoffBuilding)?.floors.map((group) => (
+                <optgroup key={group.floor} label={group.floor}>
+                  {group.rooms.map((room) => <option key={room} value={room}>{room}</option>)}
                 </optgroup>
               ))}
-              <option value="Others">Others</option>
             </select>
-            <p className="mt-1 text-xs text-slate-400">Room list is an estimate. Choose Others if your location is not listed.</p>
+            <p className="text-xs text-slate-400">Choose the building first, then select a room or listed campus location.</p>
             {err("dropoff")}
-            {formData.dropoff === "Others" && (
-              <input
-                type="text"
-                required
-                minLength={3}
-                maxLength={80}
-                placeholder="Enter another campus drop-off location"
-                value={otherDropoff}
-                onChange={(e) => setOtherDropoff(e.target.value)}
-                className={`${box("dropoffOther")} mt-2`}
-              />
-            )}
-            {err("dropoffOther")}
           </div>
         </div>
 

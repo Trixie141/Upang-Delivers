@@ -119,7 +119,7 @@ export const completeRegistrationSchema = registerSchema
     selfieImage: z.string().max(220_000, "Camera capture is too large. Try again.").optional().default(""),
   }))
   .superRefine((value, ctx) => {
-    if (value.role === "student") {
+    if (value.role === "student" || value.role === "delivery") {
       if (!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(value.studentIdImage)) {
         ctx.addIssue({ path: ["studentIdImage"], code: "custom", message: "Upload a clear photo of your student ID (JPEG image)." });
       }
@@ -253,7 +253,10 @@ export function validate(schema) {
         if (!fields[key]) fields[key] = issue.message;
       }
       req.validationFields = fields;
-      return res.status(422).json({ error: "Invalid payload.", fields });
+      return res.status(422).json({
+        error: Object.values(fields)[0] || "Please check the submitted information and try again.",
+        fields,
+      });
     }
     req.valid = result.data;
     next();

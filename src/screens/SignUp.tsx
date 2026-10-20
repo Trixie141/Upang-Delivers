@@ -75,8 +75,8 @@ function validateSignUp(v: Form): Record<string, string> {
 
   if (!STUDENT_ID_RE.test(v.studentId.trim()))
     f.studentId = "Use the campus format 04-2021-00456.";
-  if (v.role === "student" && !v.studentIdImage) f.studentIdImage = "Upload a clear photo of your student ID.";
-  if (v.role === "student" && !v.selfieImage) f.selfieImage = "Start the camera and capture a clear image of your face.";
+  if (!v.studentIdImage) f.studentIdImage = "Upload a clear photo of your student ID.";
+  if (!v.selfieImage) f.selfieImage = "Start the camera and capture a clear image of your face.";
 
   const pw = v.password;
   if (pw.length < 8) f.password = "Password must be at least 8 characters.";
@@ -150,14 +150,6 @@ export default function SignUp({
     };
   }, [cameraStream]);
 
-  useEffect(() => {
-    if (role !== "student") {
-      setCameraStream(null);
-      setSelfieImage("");
-      setCameraError("");
-    }
-  }, [role]);
-
   async function startCamera() {
     setCameraError("");
     setSelfieImage("");
@@ -219,7 +211,7 @@ export default function SignUp({
 
     if (!res.ok) {
       setFields(res.fields ?? {});
-      setError(`${res.status} \u2014 ${res.error || "Failed to register account."}`);
+      setError(res.error || "Failed to register account.");
       return;
     }
     if (res.data?.verificationPending) {
@@ -269,7 +261,7 @@ export default function SignUp({
     });
     setBusy(false);
     if (!res.ok) {
-      setError(`${res.status} — ${res.error || "Could not verify this email."}`);
+      setError(res.error || "Could not verify this email.");
       return;
     }
     if (res.data?.verificationPending) {
@@ -294,7 +286,7 @@ export default function SignUp({
     const res = await api.resendVerification(email.trim().toLowerCase());
     setBusy(false);
     if (!res.ok) {
-      setError(`${res.status} — ${res.error || "Could not send a new code."}`);
+      setError(res.error || "Could not send a new code.");
       return;
     }
     setNotice(res.message || "A new verification code was sent.");
@@ -304,7 +296,7 @@ export default function SignUp({
     return (
       <div className="min-h-screen bg-[#FDEFE6] p-4 sm:p-8 lg:p-10">
         <div className="mx-auto max-w-xl rounded-[32px] bg-white p-8 shadow-2xl sm:p-12">
-          <h1 className="text-3xl font-extrabold text-slate-900">Student ID under review</h1>
+          <h1 className="text-3xl font-extrabold text-slate-900">Account under review</h1>
           <p className="mt-4 text-slate-600">{notice}</p>
           <button type="button" onClick={onBackToLogin} className="mt-7 w-full rounded-2xl bg-emerald-500 py-4 font-bold text-white">Back to Log In</button>
         </div>
@@ -404,7 +396,7 @@ export default function SignUp({
           <FieldError msg={fields.studentId} />
           <p className="mt-1.5 text-xs text-slate-400">Use numbers and hyphens only, like 04-2021-00456.</p>
 
-          {role === "student" && <>
+          <>
             <label className="mt-4 block text-xs font-bold tracking-wider text-slate-500">UPLOAD STUDENT ID</label>
             <input
               type="file"
@@ -450,7 +442,7 @@ export default function SignUp({
             )}
             {cameraError && <p className="mt-2 text-sm font-medium text-rose-600">{cameraError}</p>}
             <FieldError msg={fields.selfieImage} />
-          </>}
+          </>
 
           <label className="mt-4 block text-xs font-bold tracking-wider text-slate-500">
             PHINMA EMAIL

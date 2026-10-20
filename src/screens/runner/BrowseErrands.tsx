@@ -87,7 +87,7 @@ export default function BrowseErrands({
     setLoading(false);
 
     if (!res.ok) {
-      setBanner(`${res.status ?? 500} — ${res.error || "Failed to load open errands."}`);
+      setBanner(res.error || "Failed to load open errands.");
       return;
     }
     setErrands(res.data || res.errands || []);
@@ -127,7 +127,7 @@ export default function BrowseErrands({
         setBanner("Another runner accepted this gig first, or its deadline passed. The open list has been refreshed.");
         return;
       }
-      setBanner(`${res.status ?? 500} — ${res.error || "Could not accept gig."}`);
+      setBanner(res.error || "Could not accept gig.");
       return;
     }
 

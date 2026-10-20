@@ -53,7 +53,7 @@ export default function RunnerGigs({ token, userId }: { token: string; userId: s
       });
       setGigs(mine);
     } else {
-      pushToast(`${gigsRes.status} — ${gigsRes.error || "Failed to load your gigs."}`);
+      pushToast(gigsRes.error || "Failed to load your gigs.");
     }
 
     const txRes = await apiClient.getMyTransactions(token);
@@ -89,7 +89,7 @@ export default function RunnerGigs({ token, userId }: { token: string; userId: s
     setAdvancingId(null);
 
     if (!res.ok) {
-      pushToast(`${res.status} — ${res.error || "Could not update the errand."}`);
+      pushToast(res.error || "Could not update the errand.");
       return;
     }
 

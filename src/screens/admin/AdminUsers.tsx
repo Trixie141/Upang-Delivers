@@ -78,7 +78,7 @@ export default function AdminUsers({ token }: { token: string }) {
     setLoading(false);
 
     if (!userRes.ok) {
-      setError(`${userRes.status} — ${userRes.error}`);
+      setError(userRes.error);
       return;
     }
     const ul = userRes.users ?? userRes.data ?? [];
@@ -88,7 +88,7 @@ export default function AdminUsers({ token }: { token: string }) {
       const el = errRes.errands ?? errRes.data ?? [];
       setErrands(Array.isArray(el) ? el : []);
     } else {
-      setError(`Could not load errand counts (${errRes.status}). Posted and Completed may show 0.`);
+      setError("Could not load errand counts. Posted and Completed may show 0.");
     }
   }
 
@@ -140,7 +140,7 @@ export default function AdminUsers({ token }: { token: string }) {
       return;
     }
     const reason = next === "suspended" ? selectedReason?.trim() ?? "" : "";
-    if (next === "suspended" && (u.role === "student" && u.idVerificationStatus === "pending" ? !ID_REJECTION_REASONS.includes(reason) : reason.length < 8)) {
+    if (next === "suspended" && (["student", "delivery"].includes(u.role) && u.idVerificationStatus === "pending" ? !ID_REJECTION_REASONS.includes(reason) : reason.length < 8)) {
       setError("A reason of at least 8 characters is required. No changes were made.");
       return;
     }
@@ -151,7 +151,7 @@ export default function AdminUsers({ token }: { token: string }) {
     setBusyId("");
 
     if (!res.ok) {
-      setError(`${res.status} — ${res.error}`);
+      setError(res.error);
       return;
     }
     const suspendedUntil = duration === "preserve" ? u.suspendedUntil ?? null : next === "suspended" && duration !== "permanent" ? new Date(Date.now() + Number(duration) * 24 * 60 * 60 * 1000).toISOString() : null;
@@ -168,7 +168,7 @@ export default function AdminUsers({ token }: { token: string }) {
     setRejectionReason(ID_REJECTION_REASONS[0]);
     const result = await api.getStudentIdImage(token, idOf(user));
     if (!result.ok) {
-      setError(`${result.status} — ${result.error || "Could not load the student ID image."}`);
+      setError(result.error || "Could not load the student ID image.");
       setReviewing(null);
       return;
     }
@@ -318,7 +318,7 @@ export default function AdminUsers({ token }: { token: string }) {
                       {u.role === "admin" ? (
                         <span className="text-slate-300">—</span>
                       ) : pending ? (
-                        u.role === "student" && u.idVerificationStatus === "pending" ? (
+                        ["student", "delivery"].includes(u.role) && u.idVerificationStatus === "pending" ? (
                           <button onClick={() => openIdReview(u)} className="rounded-xl bg-emerald-500 px-4 py-2 font-semibold text-white hover:bg-emerald-600">Review Student ID</button>
                         ) : <span className="text-sm text-slate-400">Waiting for email verification</span>
                       ) : u.idVerificationStatus === "rejected" ? (

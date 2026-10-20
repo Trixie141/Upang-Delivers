@@ -20,7 +20,7 @@ router.get("/users", async (req, res) => {
 
 /* GET /api/admin/users/:id/student-id — private ID and selfie images are returned only to admins on demand. */
 router.get("/users/:id/student-id", validObjectId(), async (req, res) => {
-  const user = await User.findOne({ _id: req.params.id, role: "student" })
+  const user = await User.findOne({ _id: req.params.id, role: { $in: ["student", "delivery"] } })
     .select("+studentIdImage +selfieImage studentId");
   if (!user?.studentIdImage || !user?.selfieImage) return res.status(404).json({ error: "Student ID or selfie image not found." });
   res.json({ studentId: user.studentId, studentIdImage: user.studentIdImage, selfieImage: user.selfieImage });
@@ -125,12 +125,13 @@ router.patch("/users/:id/status", validObjectId(), async (req, res) => {
     if (status === "active" && existing.idVerificationStatus === "rejected")
       return res.status(409).json({ error: "This student ID was rejected and cannot be reactivated without a new verification process." });
     const idRejectionReasons = ["ID image is unclear or unreadable", "Name does not match the account", "Student ID number does not match", "Invalid or expired student ID", "Uploaded document is not a student ID", "Other — contact the administrator"];
-    if (existing.role === "student" && existing.idVerificationStatus === "pending" && status === "suspended" && !idRejectionReasons.includes(reason))
+    const isPendingIdReview = ["student", "delivery"].includes(existing.role) && existing.status === "pending" && existing.idVerificationStatus === "pending";
+    if (isPendingIdReview && status === "suspended" && !idRejectionReasons.includes(reason))
       return res.status(422).json({ error: "Choose a valid student ID rejection reason." });
     if (status === "active" && existing.emailVerified === false)
       return res.status(409).json({ error: "This user must verify their email before activation." });
     const wasPending = existing.status === "pending";
-    const rejectingPendingStudent = existing.role === "student" && existing.idVerificationStatus === "pending";
+    const rejectingPendingIdReview = isPendingIdReview;
     const suspensionReasonOptions = [
       "Repeated policy violations",
       "Harassment or abusive conduct",
@@ -138,11 +139,11 @@ router.patch("/users/:id/status", validObjectId(), async (req, res) => {
       "Misuse of the errand system",
       "Repeated cancellations or failure to complete errands",
     ];
-    if (status === "suspended" && !rejectingPendingStudent &&
+    if (status === "suspended" && !rejectingPendingIdReview &&
       !suspensionReasonOptions.includes(reason) && !(reason.startsWith("Other: ") && reason.length >= 14 && reason.length <= 300))
       return res.status(422).json({ error: "Choose a listed suspension reason or provide a brief explanation for Other." });
     existing.status = status;
-    if (status === "suspended" && !wasPending && !(existing.role === "student" && existing.idVerificationStatus === "pending")) {
+    if (status === "suspended" && !wasPending && !isPendingIdReview) {
       existing.suspensionReason = reason;
       if (duration !== "preserve") {
         existing.suspendedUntil = duration === "permanent" ? null : new Date(Date.now() + Number(duration) * 24 * 60 * 60 * 1000);
@@ -151,7 +152,7 @@ router.patch("/users/:id/status", validObjectId(), async (req, res) => {
       existing.suspensionReason = "";
       existing.suspendedUntil = null;
     }
-    if (existing.role === "student" && existing.idVerificationStatus === "pending") {
+    if (isPendingIdReview) {
       existing.idVerificationStatus = status === "active" ? "approved" : "rejected";
       existing.idVerificationReason = status === "active" ? "" : reason;
     }

@@ -155,7 +155,7 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
     if (showLoading) setLoading(false);
 
     if (!res.ok) {
-      setBanner(`${res.status} — ${res.error || "Failed to load your posted requests."}`);
+      setBanner(res.error || "Failed to load your posted requests.");
       return;
     }
 
@@ -245,7 +245,7 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
     setConfirmingId(null);
 
     if (!res.ok) {
-      setBanner(`${res.status} — ${res.error || "Failed to confirm completion."}`);
+      setBanner(res.error || "Failed to confirm completion.");
       return;
     }
 
@@ -269,7 +269,7 @@ export default function MyRequests({ token, userId }: { token: string; userId: s
     setDeletingId(null);
 
     if (!res.ok) {
-      setBanner(`${res.status} — ${res.error || "Failed to cancel the request."}`);
+      setBanner(res.error || "Failed to cancel the request.");
       return;
     }
 

@@ -77,7 +77,7 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
     if (showLoading) setLoading(false);
 
     if (!res.ok) {
-      setBanner(`${res.status} — ${res.error || "Failed to load your active gigs."}`);
+      setBanner(res.error || "Failed to load your active gigs.");
       return;
     }
 
@@ -217,7 +217,7 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
     setUpdatingId(null);
 
     if (!res.ok) {
-      setBanner(`${res.status} — ${res.error || "Failed to update status."}`);
+      setBanner(res.error || "Failed to update status.");
       return;
     }
 
@@ -259,7 +259,7 @@ export default function MyGigs({ token, userId }: { token: string; userId: strin
     const res = await (api as any).submitPickupEvidence(token, id, billAmount, receiptImage);
     setUpdatingId(null);
     if (!res.ok) {
-      setBanner(`${res.status} — ${res.error || "Could not confirm pickup."}`);
+      setBanner(res.error || "Could not confirm pickup.");
       return;
     }
     setGigs((prev) => prev.map((gig) => (gig._id === id ? { ...gig, status: "picked_up" } : gig)));
