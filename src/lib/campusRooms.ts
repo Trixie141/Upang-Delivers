@@ -95,3 +95,47 @@ export const CAMPUS_BUILDINGS: CampusBuilding[] = [
 ];
 
 export const getBuilding = (name: string) => CAMPUS_BUILDINGS.find(({ building }) => building === name);
+
+export const CAMPUS_FOOD_STALLS = [
+  {
+    area: "RS",
+    stalls: [
+      "Zentea",
+      "OMG Milk Shake",
+      "Chowking",
+      "JDMC Food Beverage House",
+      "Mangkok Food Kiosk",
+      "Mama Rosas Eatery",
+    ],
+  },
+  {
+    area: "Student Plaza — Right Side",
+    stalls: [
+      "Floro Buko Station",
+      "Daddy G's Snack Corner",
+      "Arnold's Food and Beverage Kiosk",
+      "Jo Congee Ville",
+      "Khay sa Wrap Enterprises",
+      "JFC Cupcakes and Pastries Shop",
+      "Franclar Food Enterprises",
+      "JDJ Dimsum Product",
+      "Triple L Food Cart",
+      "Happiness Food Kiosk",
+    ],
+  },
+  {
+    area: "Student Plaza — Left Side",
+    stalls: [
+      "RAN-NEZ Food Kiosk",
+      "FAIR FRYZ Food Corner",
+      "HOTTO Food Stall",
+      "Granny's Food Corner",
+      "Alibaba Shawarma",
+      "Waffle Time",
+      "Gero's Food Cart",
+      "DMD Korean Food House",
+      "JSPS Food Court",
+      "AA-AA Food Hub",
+    ],
+  },
+];

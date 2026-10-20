@@ -1,28 +1,26 @@
 import { useEffect, useState } from "react";
 import { PlusCircle, AlertCircle } from "lucide-react";
 import { api } from "../lib/api";
-import { CAMPUS_BUILDINGS, getBuilding } from "../lib/campusRooms";
+import { CAMPUS_BUILDINGS, CAMPUS_FOOD_STALLS, getBuilding } from "../lib/campusRooms";
 
 const toLocalDateValue = (d: Date) => {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
-const TIME_SLOTS = Array.from({ length: 22 }, (_, i) => {
-  const totalMinutes = 7 * 60 + 30 + i * 30;
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-  const value = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-  const label = `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours < 12 ? "AM" : "PM"}`;
-  return { value, label };
-});
-
 const nextAvailableDate = () => {
   const now = new Date();
-  const lastSlot = TIME_SLOTS[TIME_SLOTS.length - 1].value;
-  const lastSlotTime = new Date(`${toLocalDateValue(now)}T${lastSlot}`);
+  const lastSlotTime = new Date(`${toLocalDateValue(now)}T18:00`);
   if (now >= lastSlotTime) now.setDate(now.getDate() + 1);
   return toLocalDateValue(now);
+};
+
+const parseTimeInput = (input: string) => {
+  const match = input.trim().match(/^(0?[1-9]|1[0-2]):([0-5]\d)\s*(AM|PM)$/i);
+  if (!match) return null;
+  let hours = Number(match[1]) % 12;
+  if (match[3].toUpperCase() === "PM") hours += 12;
+  return `${String(hours).padStart(2, "0")}:${match[2]}`;
 };
 
 const isCampusServiceOpen = (now = new Date()) => {
@@ -57,6 +55,7 @@ export default function CreateErrand({
   const [fields, setFields] = useState<Record<string, string>>({});
   const [dropoffBuilding, setDropoffBuilding] = useState("");
   const [dropoffRoom, setDropoffRoom] = useState("");
+  const [selectedStall, setSelectedStall] = useState("");
   const [preferredDate, setPreferredDate] = useState(nextAvailableDate);
   const [preferredTime, setPreferredTime] = useState("");
   const [serviceOpen, setServiceOpen] = useState(isCampusServiceOpen);
@@ -85,24 +84,25 @@ export default function CreateErrand({
       return;
     }
 
-    const selectedDateTime = preferredDate && preferredTime
-      ? new Date(`${preferredDate}T${preferredTime}`)
+    const parsedTime = parseTimeInput(preferredTime);
+    const selectedDateTime = preferredDate && parsedTime
+      ? new Date(`${preferredDate}T${parsedTime}`)
       : new Date(NaN);
-    const dateTimeLocal = `${preferredDate}T${preferredTime}`;
+    const dateTimeLocal = parsedTime ? `${preferredDate}T${parsedTime}` : "";
     setFormData((current) => ({ ...current, deadline: dateTimeLocal }));
 
     // Deadline must be a real date/time in the future before we convert it
-    if (!preferredDate || !preferredTime || isNaN(selectedDateTime.getTime())) {
-      setFields({ deadline: "Choose a valid date and preferred time." });
+    if (!preferredDate || !parsedTime || isNaN(selectedDateTime.getTime())) {
+      setFields({ deadline: "Enter a valid date and time, such as 7:30 AM." });
       return;
     }
     if (selectedDateTime.getTime() <= Date.now()) {
       setFields({ deadline: "Choose a future date and time." });
       return;
     }
-    const slot = TIME_SLOTS.some((item) => item.value === preferredTime);
-    if (!slot) {
-      setFields({ deadline: "Preferred time must be between 7:30 AM and 6:00 PM." });
+    const timeMinutes = selectedDateTime.getHours() * 60 + selectedDateTime.getMinutes();
+    if (timeMinutes < 7 * 60 + 30 || timeMinutes > 18 * 60) {
+      setFields({ deadline: "Enter a time between 7:30 AM and 6:00 PM." });
       return;
     }
     if (!/^\d{11}$/.test(formData.contactPhone)) {
@@ -194,7 +194,10 @@ export default function CreateErrand({
             <select
               name="category"
               value={formData.category}
-              onChange={handleChange}
+              onChange={(e) => {
+                setFormData((current) => ({ ...current, category: e.target.value, pickup: "" }));
+                setSelectedStall("");
+              }}
               className={`${box("category")} bg-white`}
             >
               {CATEGORIES.map((c) => (
@@ -226,23 +229,63 @@ export default function CreateErrand({
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <label className={label}>Pickup Location</label>
-            <input
-              type="text"
-              name="pickup"
-              required
-              minLength={3}
-              maxLength={80}
-              pattern="[^<>]{3,80}"
-              title="Enter 3 to 80 characters without < or >."
-              placeholder="e.g., Campus Bookstore"
-              value={formData.pickup}
-              onChange={handleChange}
-              onBlur={() => setFormData((current) => ({ ...current, pickup: current.pickup.trim() }))}
-              className={box("pickup")}
-            />
+            <label className={label}>{formData.category === "Food Run" ? "Food Stall / Pickup Location" : "Pickup Location"}</label>
+            {formData.category === "Food Run" ? (
+              <>
+                <select
+                  value={selectedStall}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setSelectedStall(value);
+                    const area = CAMPUS_FOOD_STALLS.find((group) => group.stalls.includes(value))?.area;
+                    setFormData((current) => ({ ...current, pickup: area && value !== "Other" ? `${area}: ${value}` : "" }));
+                    setFields((current) => ({ ...current, pickup: "" }));
+                  }}
+                  className={`${box("pickup")} bg-white`}
+                  required
+                  aria-label="Select campus food stall"
+                >
+                  <option value="">Select a campus food stall</option>
+                  {CAMPUS_FOOD_STALLS.map((group) => (
+                    <optgroup key={group.area} label={group.area}>
+                      {group.stalls.map((stall) => <option key={stall} value={stall}>{stall}</option>)}
+                    </optgroup>
+                  ))}
+                  <option value="Other">Other pickup location</option>
+                </select>
+                {selectedStall === "Other" && (
+                  <input
+                    type="text"
+                    required
+                    minLength={3}
+                    maxLength={80}
+                    pattern="[^<>]{3,80}"
+                    title="Enter 3 to 80 characters without < or >."
+                    placeholder="Enter another pickup location"
+                    value={formData.pickup}
+                    onChange={(e) => setFormData((current) => ({ ...current, pickup: e.target.value }))}
+                    className={`${box("pickup")} mt-2`}
+                  />
+                )}
+              </>
+            ) : (
+              <input
+                type="text"
+                name="pickup"
+                required
+                minLength={3}
+                maxLength={80}
+                pattern="[^<>]{3,80}"
+                title="Enter 3 to 80 characters without < or >."
+                placeholder="e.g., Campus Bookstore"
+                value={formData.pickup}
+                onChange={handleChange}
+                onBlur={() => setFormData((current) => ({ ...current, pickup: current.pickup.trim() }))}
+                className={box("pickup")}
+              />
+            )}
             {err("pickup")}
-            <p className="mt-1 text-xs text-slate-400">Enter 3–80 characters. The location cannot be blank or contain &lt; or &gt;.</p>
+            <p className="mt-1 text-xs text-slate-400">{formData.category === "Food Run" ? "Choose the stall and campus area where the runner should pick up the order." : "Enter 3–80 characters. The location cannot be blank or contain &lt; or &gt;."}</p>
           </div>
 
           <div className="space-y-3">
@@ -327,28 +370,28 @@ export default function CreateErrand({
               className={box("deadline")}
               aria-label="Preferred date"
             />
-            <select
+            <input
+              type="text"
               name="preferredTime"
               required
+              inputMode="text"
+              maxLength={8}
+              pattern="(0?[1-9]|1[0-2]):[0-5][0-9]\s?(AM|PM)"
+              title="Enter a time like 7:30 AM, between 7:30 AM and 6:00 PM."
+              placeholder="e.g., 7:30 AM"
               value={preferredTime}
               onChange={(e) => {
-                setPreferredTime(e.target.value);
-                setFormData((current) => ({ ...current, deadline: `${preferredDate}T${e.target.value}` }));
+                const value = e.target.value.replace(/[^0-9: apm]/gi, "").toUpperCase();
+                setPreferredTime(value);
+                const parsed = parseTimeInput(value);
+                setFormData((current) => ({ ...current, deadline: parsed ? `${preferredDate}T${parsed}` : "" }));
                 setFields((current) => ({ ...current, deadline: "" }));
               }}
-              className={`${box("deadline")} bg-white`}
-              aria-label="Preferred time"
-            >
-              <option value="" disabled>Select a time</option>
-              {TIME_SLOTS.filter((item) => {
-                if (preferredDate !== toLocalDateValue(new Date())) return true;
-                return new Date(`${preferredDate}T${item.value}`).getTime() > Date.now();
-              }).map((item) => (
-                <option key={item.value} value={item.value}>{item.label}</option>
-              ))}
-            </select>
+              className={box("deadline")}
+              aria-label="Preferred time, between 7:30 AM and 6:00 PM"
+            />
           </div>
-          <p className="mt-1 text-xs text-slate-400">Available every 30 minutes from 7:30 AM to 6:00 PM. Past dates and times are unavailable.</p>
+          <p className="mt-1 text-xs text-slate-400">Enter a time between 7:30 AM and 6:00 PM, such as 9:15 AM. Past dates and times are unavailable.</p>
           {err("deadline")}
         </div>
 

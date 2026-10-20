@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Sandwich, Printer, Users, MoreHorizontal, ShieldCheck, AlertCircle } from "lucide-react";
 import { useStore } from "../store";
 import { api } from "@/lib/api";
-import { CAMPUS_BUILDINGS, getBuilding } from "@/lib/campusRooms";
+import { CAMPUS_BUILDINGS, CAMPUS_FOOD_STALLS, getBuilding } from "@/lib/campusRooms";
 
 const categories = [
   { key: "Food Run", icon: Sandwich, tint: "text-emerald-600" },
@@ -30,6 +30,7 @@ export default function PostErrand({
   const [title, setTitle] = useState("");
   const [instructions, setInstructions] = useState("");
   const [pickup, setPickup] = useState("");
+  const [selectedStall, setSelectedStall] = useState("");
   const [dropoff, setDropoff] = useState("");
   const [dropoffBuilding, setDropoffBuilding] = useState("");
   const [dropoffRoom, setDropoffRoom] = useState("");
@@ -122,7 +123,11 @@ export default function PostErrand({
               <button
                 key={c.key}
                 type="button"
-                onClick={() => setCategory(c.key)}
+                onClick={() => {
+                  setCategory(c.key);
+                  setPickup("");
+                  setSelectedStall("");
+                }}
                 className={`flex flex-col items-center gap-4 rounded-2xl border-2 py-8 transition ${
                   active
                     ? "border-emerald-500 bg-orange-50/60"
@@ -177,24 +182,64 @@ export default function PostErrand({
           <div className="grid gap-6 sm:grid-cols-2">
             <div>
               <label className="text-xs font-bold tracking-[0.12em] text-slate-400">
-                PICK-UP LOCATION
+                {category === "Food Run" ? "FOOD STALL / PICK-UP LOCATION" : "PICK-UP LOCATION"}
               </label>
-              <input
-                type="text"
-                name="pickup"
-                required
-                minLength={3}
-                maxLength={80}
-                pattern="[^<>]{3,80}"
-                title="Enter 3 to 80 characters without < or >."
-                value={pickup}
-                onChange={(e) => setPickup(e.target.value)}
-                onBlur={() => setPickup((value) => value.trim())}
-                placeholder="e.g., PHINMA Canteen"
-                className={`mt-2 ${box("pickup")}`}
-              />
+              {category === "Food Run" ? (
+                <>
+                  <select
+                    value={selectedStall}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSelectedStall(value);
+                      const area = CAMPUS_FOOD_STALLS.find((group) => group.stalls.includes(value))?.area;
+                      setPickup(area && value !== "Other" ? `${area}: ${value}` : "");
+                      setFields((current) => ({ ...current, pickup: "" }));
+                    }}
+                    className={`mt-2 ${box("pickup")} bg-white`}
+                    required
+                    aria-label="Select campus food stall"
+                  >
+                    <option value="">Select a campus food stall</option>
+                    {CAMPUS_FOOD_STALLS.map((group) => (
+                      <optgroup key={group.area} label={group.area}>
+                        {group.stalls.map((stall) => <option key={stall} value={stall}>{stall}</option>)}
+                      </optgroup>
+                    ))}
+                    <option value="Other">Other pickup location</option>
+                  </select>
+                  {selectedStall === "Other" && (
+                    <input
+                      type="text"
+                      required
+                      minLength={3}
+                      maxLength={80}
+                      pattern="[^<>]{3,80}"
+                      title="Enter 3 to 80 characters without < or >."
+                      value={pickup}
+                      onChange={(e) => setPickup(e.target.value)}
+                      placeholder="Enter another pickup location"
+                      className={`mt-2 ${box("pickup")}`}
+                    />
+                  )}
+                </>
+              ) : (
+                <input
+                  type="text"
+                  name="pickup"
+                  required
+                  minLength={3}
+                  maxLength={80}
+                  pattern="[^<>]{3,80}"
+                  title="Enter 3 to 80 characters without < or >."
+                  value={pickup}
+                  onChange={(e) => setPickup(e.target.value)}
+                  onBlur={() => setPickup((value) => value.trim())}
+                  placeholder="e.g., PHINMA Canteen"
+                  className={`mt-2 ${box("pickup")}`}
+                />
+              )}
               {err("pickup")}
-              <p className="mt-1 text-xs text-slate-400">Enter 3–80 characters. The location cannot be blank or contain &lt; or &gt;.</p>
+              <p className="mt-1 text-xs text-slate-400">{category === "Food Run" ? "Choose the stall and campus area where the runner should pick up the order." : "Enter 3–80 characters. The location cannot be blank or contain &lt; or &gt;."}</p>
             </div>
             <div>
               <label className="text-xs font-bold tracking-[0.12em] text-slate-400">
