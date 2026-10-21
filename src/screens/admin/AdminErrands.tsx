@@ -54,6 +54,9 @@ export default function AdminErrands({ token }: { token: string }) {
   const [page, setPage] = useState(1);
   const [reviews, setReviews] = useState<Record<string, RowReview | null>>({});
   const [busyId, setBusyId] = useState("");
+  const [cancelTarget, setCancelTarget] = useState<any | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelError, setCancelError] = useState("");
 
   async function load() {
     setLoading(true);
@@ -148,24 +151,34 @@ export default function AdminErrands({ token }: { token: string }) {
     setPage(1);
   };
 
-  async function cancelErrand(e: any) {
-    const id = String(e._id ?? e.id);
-    if (!window.confirm(`Cancel ${shortId(e)} — ${e.title}? This will immediately stop the errand.`)) return;
-    const reason = window.prompt("Enter a cancellation reason (at least 8 characters):")?.trim() ?? "";
+  async function cancelErrand() {
+    if (!cancelTarget) return;
+    const reason = cancelReason.trim();
     if (reason.length < 8) {
-      setError("A reason of at least 8 characters is required. No changes were made.");
+      setCancelError("Please explain why you are cancelling (at least 8 characters).");
       return;
     }
+    const id = String(cancelTarget._id ?? cancelTarget.id);
     setBusyId(id);
     setError("");
     const res = await api.cancelAdminErrand(token, id, reason);
     setBusyId("");
     if (!res.ok) {
-      setError(res.error);
+      setCancelError(res.error);
       return;
     }
     setErrands((all) => all.map((row) => String(row._id ?? row.id) === id ? { ...row, status: "cancelled", cancelReason: reason } : row));
+    setCancelTarget(null);
+    setCancelReason("");
+    setCancelError("");
   }
+
+  const closeCancelDialog = () => {
+    if (busyId) return;
+    setCancelTarget(null);
+    setCancelReason("");
+    setCancelError("");
+  };
 
   return (
     <div className="mx-auto max-w-6xl space-y-6 rounded-[2rem] bg-gradient-to-br from-emerald-50/70 via-white to-green-100/60 p-3 sm:p-5">
@@ -236,18 +249,18 @@ export default function AdminErrands({ token }: { token: string }) {
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-3xl border border-emerald-100 bg-gradient-to-b from-white via-white to-emerald-50/60 shadow-sm">
-        <table className="w-full min-w-[900px] text-left">
+      <div className="overflow-x-auto rounded-3xl border border-emerald-100 bg-white shadow-sm">
+        <table className="w-full min-w-[1320px] table-fixed text-left">
           <thead>
             <tr className="bg-gradient-to-r from-emerald-50 via-green-50 to-white text-xs font-bold tracking-[0.12em] text-emerald-800/70">
-              <th className="px-6 py-5">ERRAND</th>
-              <th className="px-6 py-5">PEOPLE</th>
-              <th className="px-6 py-5">CATEGORY</th>
-              <th className="px-6 py-5">PAYMENT & EVIDENCE</th>
-              <th className="px-6 py-5">STATUS</th>
-              <th className="px-6 py-5">REVIEW</th>
-              <th className="px-6 py-5">DEADLINE</th>
-              <th className="px-6 py-5">ADMIN ACTION</th>
+              <th className="w-[250px] px-5 py-4">ERRAND</th>
+              <th className="w-[180px] px-5 py-4">PEOPLE</th>
+              <th className="w-[125px] px-5 py-4">CATEGORY</th>
+              <th className="w-[190px] px-5 py-4">PAYMENT &amp; EVIDENCE</th>
+              <th className="w-[130px] px-5 py-4">STATUS</th>
+              <th className="w-[150px] px-5 py-4">REVIEW</th>
+              <th className="w-[180px] px-5 py-4">DEADLINE</th>
+              <th className="w-[115px] px-5 py-4">ADMIN ACTION</th>
             </tr>
           </thead>
           <tbody>
@@ -274,14 +287,13 @@ export default function AdminErrands({ token }: { token: string }) {
 
                 return (
                   <tr key={id ?? i} className="border-t border-emerald-100/70 align-top transition-colors hover:bg-gradient-to-r hover:from-emerald-50/70 hover:to-green-50/40">
-                    <td className="px-6 py-5">
+                    <td className="break-words px-5 py-4">
                       <p className="font-mono text-xs font-bold text-green-500">{shortId(e)}</p>
-                      <p className="mt-1 font-bold text-slate-900">{e.title}</p>
-                      <p className="text-xs text-slate-400">
-                        {e.pickup} → {e.dropoff}
-                      </p>
+                      <p className="mt-1 font-bold leading-5 text-slate-900">{e.title}</p>
+                      <p className="mt-2 text-xs leading-4 text-slate-500"><span className="font-semibold text-slate-400">Pickup:</span> {e.pickup}</p>
+                      <p className="text-xs leading-4 text-slate-500"><span className="font-semibold text-slate-400">Drop-off:</span> {e.dropoff}</p>
                     </td>
-                    <td className="px-6 py-5 text-sm text-slate-600">
+                    <td className="break-words px-5 py-4 text-sm text-slate-600">
                       <p>
                         <span className="text-xs text-slate-400">Posted by</span>{" "}
                         {nameOf(e.ownerId ?? e.owner_id)}
@@ -291,18 +303,18 @@ export default function AdminErrands({ token }: { token: string }) {
                         {runner ? nameOf(e.runnerId ?? e.runner_id) : <span className="text-slate-300">Unassigned</span>}
                       </p>
                     </td>
-                    <td className="px-6 py-5 whitespace-nowrap">
+                    <td className="px-5 py-4">
                       <span className="rounded-lg bg-gradient-to-r from-emerald-50 to-green-100 px-3 py-1 text-xs font-semibold text-emerald-800">
                         {e.category}
                       </span>
                     </td>
-                    <td className="px-6 py-5 text-sm text-slate-600">
+                    <td className="break-words px-5 py-4 text-sm text-slate-600">
                       <p className="font-bold text-slate-900">₱{e.reward} runner reward</p>
                       <p className="mt-1">{formatPaymentMethod(e.paymentMethod, e.cod)}</p>
                       {e.billAmount != null && <p className="mt-1">Item bill: ₱{Number(e.billAmount).toFixed(2)}</p>}
                       {e.pickedUpAt && <p className={`mt-1 text-xs ${e.receiptExpiresAt && new Date(e.receiptExpiresAt) > new Date() ? "text-emerald-700" : "text-slate-400"}`}>{e.receiptExpiresAt && new Date(e.receiptExpiresAt) > new Date() ? "Receipt retained" : "Receipt expired or unavailable"}</p>}
                     </td>
-                    <td className="px-6 py-5 whitespace-nowrap">
+                    <td className="px-5 py-4">
                       <span
                         className={`rounded-lg px-3 py-1 text-xs font-bold ${
                           meta?.tint ?? "bg-slate-100 text-slate-500"
@@ -311,7 +323,7 @@ export default function AdminErrands({ token }: { token: string }) {
                         {meta?.label ?? e.status}
                       </span>
                     </td>
-                    <td className="px-6 py-5 text-xs max-w-[160px]">
+                    <td className="max-w-[150px] break-words px-5 py-4 text-xs">
                       {e.status !== "done" ? (
                         <span className="text-slate-300">—</span>
                       ) : review === undefined ? (
@@ -332,12 +344,12 @@ export default function AdminErrands({ token }: { token: string }) {
                         <span className="italic text-slate-400">No review</span>
                       )}
                     </td>
-                    <td className="px-6 py-5 whitespace-nowrap text-sm text-slate-500">
+                    <td className="whitespace-normal px-5 py-4 text-sm text-slate-500">
                       {formatDate(e.deadline)}
                       {e.cancelReason && <p className="mt-2 max-w-48 whitespace-normal text-xs text-rose-700">Reason: {e.cancelReason}</p>}
                     </td>
-                    <td className="px-6 py-5">
-                      {["open", "in_progress", "picked_up", "review"].includes(e.status) ? <button onClick={() => cancelErrand(e)} disabled={busyId === String(id)} className="rounded-xl border border-rose-200 bg-gradient-to-r from-rose-50 to-orange-100 px-3 py-2 text-sm font-semibold text-rose-700 shadow-sm disabled:opacity-50">{busyId === String(id) ? "Cancelling..." : "Cancel"}</button> : <span className="text-slate-300">—</span>}
+                    <td className="px-5 py-4">
+                      {["open", "in_progress", "picked_up", "review"].includes(e.status) ? <button onClick={() => { setCancelTarget(e); setCancelReason(""); setCancelError(""); }} disabled={busyId === String(id)} className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-50">Cancel</button> : <span className="text-slate-300">—</span>}
                     </td>
                   </tr>
                 );
@@ -382,6 +394,49 @@ export default function AdminErrands({ token }: { token: string }) {
           </button>
         </div>
       </div>
+
+      {cancelTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => { if (event.target === event.currentTarget) closeCancelDialog(); }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cancel-errand-title"
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-8"
+          >
+            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600">
+              <span className="text-xl font-bold">!</span>
+            </div>
+            <h2 id="cancel-errand-title" className="text-xl font-bold text-slate-900">Cancel this errand?</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              <span className="font-semibold">{shortId(cancelTarget)} · {cancelTarget.title}</span>
+              <br />Cancelling will stop the errand. Add a reason so the student and runner understand why.
+            </p>
+            <label htmlFor="cancel-reason" className="mt-5 block text-sm font-semibold text-slate-700">Reason for cancellation</label>
+            <textarea
+              id="cancel-reason"
+              value={cancelReason}
+              onChange={(event) => { setCancelReason(event.target.value); setCancelError(""); }}
+              minLength={8}
+              maxLength={300}
+              rows={4}
+              autoFocus
+              placeholder="Explain why this errand needs to be cancelled..."
+              className="mt-2 w-full resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-100"
+            />
+            <div className="mt-1 flex items-center justify-between text-xs">
+              {cancelError ? <p className="text-rose-600" role="alert">{cancelError}</p> : <p className="text-slate-400">At least 8 characters.</p>}
+              <span className="text-slate-400">{cancelReason.length}/300</span>
+            </div>
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button type="button" onClick={closeCancelDialog} disabled={Boolean(busyId)} className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50">Keep errand</button>
+              <button type="button" onClick={cancelErrand} disabled={Boolean(busyId)} className="rounded-xl bg-rose-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-700 disabled:cursor-wait disabled:opacity-60">{busyId ? "Cancelling..." : "Cancel errand"}</button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
